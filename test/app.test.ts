@@ -222,7 +222,50 @@ describe("configFromEnv", () => {
     expect(() => configFromEnv({ X402_PAY_TO: "0x123" })).toThrow(/X402_PAY_TO/);
     expect(() => configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "base" })).toThrow(/CAIP-2/);
     expect(() => configFromEnv({ X402_PAY_TO: PAY_TO, FACILITATOR: "coinbase" })).toThrow(/FACILITATOR/);
-    expect(() => configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "eip155:8453" })).toThrow(/testnet only/);
+    expect(() => configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "eip155:8453", FACILITATOR: "x402org" })).toThrow(/testnet only/);
+  });
+  it("defaults to PayAI on Base mainnet", () => {
+    expect(configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "eip155:8453" }))
+      .toMatchObject({ facilitatorKind: "payai", facilitatorUrl: "https://facilitator.payai.network" });
+  });
+});
+
+describe("cdp mode without a secret", () => {
+  const missing = async (name: string): Promise<string> => {
+    throw new Error(`ResourceNotFoundException: ${name}`);
+  };
+
+  it("starts and serves free routes; a paid request fails closed without content", async () => {
+    let reads = 0;
+    const fetchSecret = async (name: string) => {
+      reads++;
+      return missing(name);
+    };
+    const cfg = configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "eip155:8453", FACILITATOR: "cdp" }, fetchSecret);
+    const lines: string[] = [];
+    const app = createApp({ ...cfg, funnel: new FunnelLogger((l) => lines.push(l)) });
+    for (const path of ["/", "/health", "/llms.txt", "/openapi.json"]) {
+      expect((await app.request(path)).status).toBe(200);
+    }
+    expect((await app.request("/cn/workday?date=bad")).status).toBe(400);
+    // The library syncs with the facilitator in the background at startup; a missing secret there
+    // is logged and retried on the next paid request, never fatal.
+    const paid = await app.request("/cn/workday?date=2026-02-14");
+    expect(paid.status).toBeGreaterThanOrEqual(500);
+    expect(await paid.text()).not.toContain("is_makeup_workday");
+    expect(reads).toBeGreaterThan(0);
+  });
+
+  it("other facilitator modes never read the secret", () => {
+    let reads = 0;
+    const fetchSecret = async () => {
+      reads++;
+      return "{}";
+    };
+    for (const FACILITATOR of ["x402org", "payai"]) {
+      createApp(configFromEnv({ X402_PAY_TO: PAY_TO, FACILITATOR }, fetchSecret));
+    }
+    expect(reads).toBe(0);
   });
 });
 

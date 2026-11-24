@@ -63,7 +63,8 @@ export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig 
   }
   const network = (env.X402_NETWORK?.trim() || DEFAULT_NETWORK) as Network;
   if (!/^eip155:\d+$/.test(network)) throw new Error(`X402_NETWORK must be a CAIP-2 eip155 id, got ${network}`);
-  const kind = (env.FACILITATOR?.trim() || "x402org") as FacilitatorKind;
+  // Default: x402.org on testnet, PayAI (no account needed) on Base mainnet.
+  const kind = (env.FACILITATOR?.trim() || (network === MAINNET_NETWORK ? "payai" : "x402org")) as FacilitatorKind;
   if (!["x402org", "payai", "cdp"].includes(kind)) {
     throw new Error(`FACILITATOR must be one of cdp, payai, x402org; got ${kind}`);
   }
