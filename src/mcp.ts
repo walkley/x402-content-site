@@ -69,11 +69,13 @@ export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
     inputSchema: {
       type: "object",
       properties: {
-        date: { ...DATE, description: "One date (YYYY-MM-DD). Do not combine with from/to." },
-        from: { ...DATE, description: "Range start, inclusive (YYYY-MM-DD)" },
-        to: { ...DATE, description: "Range end, inclusive (YYYY-MM-DD)" },
+        date: { ...DATE, description: "One date (YYYY-MM-DD). Do not combine with from/to.", examples: ["2026-10-08"] },
+        from: { ...DATE, description: "Range start, inclusive (YYYY-MM-DD)", examples: ["2026-10-01"] },
+        to: { ...DATE, description: "Range end, inclusive (YYYY-MM-DD)", examples: ["2026-10-31"] },
       },
       additionalProperties: false,
+      // date and from/to exclude each other, so whole valid argument objects are listed too (JSON Schema `examples`).
+      examples: [{ date: "2026-10-08" }, { from: "2026-10-01", to: "2026-10-31" }],
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },

@@ -191,6 +191,27 @@ describe("MCP protocol", () => {
     for (const t of tools) expect(t.inputSchema.type).toBe("object");
   });
 
+  // Directory probers (nohumans.directory) build an unpaid call from the schema's examples; it must pass validation.
+  it.each(["/mcp", "/paid/mcp"])("%s: every parameter has examples, and calls built from them pass validation", async (path) => {
+    type Schema = { properties: Record<string, { examples?: unknown[] }>; required?: string[]; examples?: Record<string, unknown>[] };
+    const { rpc, call } = setup({ path });
+    const tools = (await rpc("tools/list")).body.result.tools as { name: string; inputSchema: Schema }[];
+    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories"]);
+    for (const { name, inputSchema: s } of tools) {
+      for (const [p, prop] of Object.entries(s.properties)) expect(prop.examples?.length, `${name}.${p}`).toBeGreaterThan(0);
+      const fromRequired = Object.fromEntries((s.required ?? []).map((p) => [p, s.properties[p].examples![0]]));
+      const argSets = [...(s.required?.length ? [fromRequired] : []), ...(s.examples ?? [])];
+      expect(argSets.length, name).toBeGreaterThan(0);
+      for (const args of argSets) {
+        const r = (await call(name, args)).result;
+        const what = `${name} ${JSON.stringify(args)}`;
+        expect(r.content[0].text, what).not.toMatch(/^invalid_/);
+        if (path === "/mcp") expect(r.isError, what).toBeUndefined();
+        else expect(r.structuredContent, what).toMatchObject({ status: 402 });
+      }
+    }
+  });
+
   it("rejects bad JSON, batches, unknown methods and unsupported protocol versions", async () => {
     const { app, rpc } = setup();
     const post = (body: string) => app.request("/mcp", { method: "POST", headers: { "content-type": "application/json" }, body });
