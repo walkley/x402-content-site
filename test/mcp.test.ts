@@ -219,6 +219,36 @@ describe("MCP protocol", () => {
     }
   });
 
+  describe("cn_workday_check with no arguments checks today in Asia/Shanghai", () => {
+    // 2026-09-30 16:30 UTC is 2026-10-01 00:30 in China: the UTC day is a workday, the China day is 国庆节.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.UTC(2026, 8, 30, 16, 30));
+      return () => vi.useRealTimers();
+    });
+
+    it("/mcp answers {} with today's result", async () => {
+      const { call } = setup();
+      const r = (await call("cn_workday_check", {})).result;
+      expect(r.isError).toBeUndefined();
+      expect(r.structuredContent).toMatchObject({ date: "2026-10-01", is_workday: false });
+      // arguments omitted altogether is the same call
+      expect((await call("cn_workday_check", undefined)).result.structuredContent).toMatchObject({ date: "2026-10-01" });
+    });
+
+    it("/paid/mcp answers {} with a payment link for today's date", async () => {
+      const { call } = setup({ path: "/paid/mcp" });
+      const r = (await call("cn_workday_check", {})).result;
+      expect(r.structuredContent).toMatchObject({ status: 402, url: `${BASE}/cn/workday?date=2026-10-01&src=mcp` });
+    });
+
+    it.each(["/mcp", "/paid/mcp"])("%s still refuses date with from, and from without to", async (path) => {
+      const { call } = setup({ path });
+      expect((await call("cn_workday_check", { date: "2026-10-08", from: "2026-10-01" })).result.content[0].text).toMatch(/^invalid_arguments/);
+      expect((await call("cn_workday_check", { from: "2026-10-01" })).result.content[0].text).toMatch(/^invalid_/);
+    });
+  });
+
   it("rejects bad JSON, batches, unknown methods and unsupported protocol versions", async () => {
     const { app, rpc } = setup();
     const post = (body: string) => app.request("/mcp", { method: "POST", headers: { "content-type": "application/json" }, body });
@@ -610,7 +640,7 @@ describe("payment link and /paid/mcp", () => {
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toContain("invalid_date");
     expect(r.structuredContent).toBeUndefined();
-    expect((await call("cn_workday_check", {})).result.content[0].text).toContain("invalid_arguments");
+    expect((await call("cn_workday_check", { date: "2026-10-08", from: "2026-10-01" })).result.content[0].text).toContain("invalid_arguments");
     expect((await call("package_advisories", { ecosystem: "cobol", name: "x", version: "1" })).result.structuredContent).toBeUndefined();
     expect(db.calls).toHaveLength(0);
   });
