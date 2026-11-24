@@ -4,6 +4,8 @@ import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePaymentSignatureHeader } from "@x402/core/http";
 import { configFromEnv, createApp } from "../src/app.js";
 import { FunnelLogger } from "../src/funnel.js";
+import { OsvClient } from "../src/advisories.js";
+import { fakeOsvFetch } from "./helpers/osv.js";
 
 const PAY_TO = "0x96B16408be584E863Ab3f05703059e302c474f0A";
 const PAYER = "0x41836Aaa4799D787a0f02D22Ff584C3d72aC979a";
@@ -31,7 +33,7 @@ class FakeFacilitator implements FacilitatorClient {
   }
 }
 
-function setup(mode: { verify: boolean; settle: boolean | "throw" }) {
+function setup(mode: { verify: boolean; settle: boolean | "throw" }, osv?: OsvClient) {
   const lines: string[] = [];
   const facilitator = new FakeFacilitator(mode);
   const app = createApp({
@@ -41,6 +43,7 @@ function setup(mode: { verify: boolean; settle: boolean | "throw" }) {
     facilitatorUrl: "http://unused",
     facilitator,
     funnel: new FunnelLogger((l) => lines.push(l)),
+    osv,
   });
   const events = () => lines.map((l) => JSON.parse(l));
   return { app, facilitator, lines, events };
@@ -48,8 +51,9 @@ function setup(mode: { verify: boolean; settle: boolean | "throw" }) {
 
 const UA = { "user-agent": "vitest-agent/1.0" };
 
-async function paidRequest(app: ReturnType<typeof createApp>, path: string) {
-  const first = await app.request(path, { headers: UA });
+async function paidRequest(app: ReturnType<typeof createApp>, path: string, init: { method?: string; body?: string } = {}) {
+  const json: Record<string, string> = init.body ? { "content-type": "application/json" } : {};
+  const first = await app.request(path, { ...init, headers: { ...UA, ...json } });
   const required = decodePaymentRequiredHeader(first.headers.get("payment-required")!);
   const accepted = required.accepts[0];
   const payload: PaymentPayload = {
@@ -69,7 +73,7 @@ async function paidRequest(app: ReturnType<typeof createApp>, path: string) {
     },
     extensions: required.extensions,
   } as PaymentPayload;
-  return app.request(path, { headers: { ...UA, "payment-signature": encodePaymentSignatureHeader(payload) } });
+  return app.request(path, { ...init, headers: { ...UA, ...json, "payment-signature": encodePaymentSignatureHeader(payload) } });
 }
 
 describe("402 without payment", () => {
@@ -279,6 +283,128 @@ describe("prices shown to agents and humans", () => {
       const text = await (await app.request(path)).text();
       expect(text).toContain("$0.003");
       expect(text).toContain("$0.005");
+    }
+  });
+});
+
+describe("package advisories endpoints", () => {
+  const LODASH = "/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20";
+  const batchBody = (n: number) =>
+    JSON.stringify({ packages: Array.from({ length: n }, (_, i) => ({ ecosystem: "npm", name: "lodash", version: i % 2 ? "4.17.21" : "4.17.20" })) });
+
+  it.each([
+    [LODASH, "GET", undefined, "5000"],
+    ["/deps/advisories/batch", "POST", batchBody(2), "20000"],
+  ])("%s %s without payment returns 402 with accepts and a Bazaar declaration", async (path, method, body, amount) => {
+    const osv = new OsvClient(fakeOsvFetch().fn);
+    const { app } = setup({ verify: true, settle: true }, osv);
+    const res = await app.request(path, { method, body, headers: { ...UA, ...(body ? { "content-type": "application/json" } : {}) } });
+    expect(res.status).toBe(402);
+    const required = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
+    expect(required.accepts[0]).toMatchObject({ scheme: "exact", network: NETWORK, payTo: PAY_TO, amount, asset: USDC_BASE_SEPOLIA });
+    expect(required.resource).toMatchObject({ serviceName: "Package Vulnerability Advisories" });
+    expect(required.resource.tags).toEqual(["security", "dependencies", "cve", "npm", "pypi"]);
+    const bazaar = required.extensions?.bazaar as { info: { input: { method: string }; output: { example: unknown } } };
+    expect(bazaar.info.input.method).toBe(method);
+    expect(bazaar.info.output.example).toBeTruthy();
+    expect(osv.upstreamCalls).toBe(0); // OSV is only called after a verified payment
+  });
+
+  it.each([
+    ["/deps/advisories?ecosystem=rubygems&name=rails&version=7.0.0", "GET", undefined, "invalid_ecosystem"],
+    ["/deps/advisories?ecosystem=npm&version=1.0.0", "GET", undefined, "invalid_name"],
+    ["/deps/advisories?ecosystem=npm&name=lodash", "GET", undefined, "invalid_version"],
+    ["/deps/advisories/batch", "POST", "not json", "invalid_body"],
+    ["/deps/advisories/batch", "POST", "{}", "invalid_body"],
+    ["/deps/advisories/batch", "POST", batchBody(51), "batch_too_large"],
+  ])("%s %s %s -> free 400 %s", async (path, method, body, code) => {
+    const { app } = setup({ verify: true, settle: true }, new OsvClient(fakeOsvFetch().fn));
+    const res = await app.request(path, { method, body, headers: { ...UA, "content-type": "application/json" } });
+    expect(res.status).toBe(400);
+    expect(res.headers.get("payment-required")).toBeNull();
+    expect(await res.json()).toMatchObject({ error: code });
+  });
+
+  it("rejects an oversized batch body with 413 before parsing", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const res = await app.request("/deps/advisories/batch", {
+      method: "POST",
+      body: JSON.stringify({ packages: [], pad: "x".repeat(70_000) }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("GET on the batch route and POST on the single route are not paid routes", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    expect((await app.request("/deps/advisories/batch")).status).toBe(404);
+    expect((await app.request(LODASH, { method: "POST" })).status).toBe(404);
+  });
+
+  it("paid single query returns advisories and settles; a repeat hits the cache", async () => {
+    const osv = new OsvClient(fakeOsvFetch().fn);
+    const { app, events, facilitator } = setup({ verify: true, settle: true }, osv);
+    const res = await paidRequest(app, LODASH);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ ecosystem: "npm", name: "lodash", version: "4.17.20", vulnerable: true, advisory_count: 4 });
+    expect(body.advisories.flatMap((a: { aliases: string[] }) => a.aliases)).toContain("CVE-2021-23337");
+    expect(decodePaymentResponseHeader(res.headers.get("payment-response")!).success).toBe(true);
+    expect(events().map((e) => e.stage)).toContain("content_returned");
+    const again = await paidRequest(app, LODASH);
+    expect(again.status).toBe(200);
+    expect(osv.upstreamCalls).toBe(1);
+    expect(facilitator.settleCalls).toBe(2);
+  });
+
+  it.each(["timeout", "500", "network", "badjson"] as const)("OSV %s: 502, nothing settled, no content", async (fail) => {
+    const { app, events, facilitator } = setup({ verify: true, settle: true }, new OsvClient(fakeOsvFetch({ fail }).fn));
+    const res = await paidRequest(app, LODASH);
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toBe("upstream_unavailable");
+    expect(body.advisories).toBeUndefined();
+    expect(res.headers.get("payment-response")).toBeNull();
+    expect(facilitator.verifyCalls).toBe(1);
+    expect(facilitator.settleCalls).toBe(0);
+    const stages = events().map((e) => e.stage);
+    expect(stages).toContain("handler_error");
+    expect(stages).not.toContain("settle_ok");
+    expect(stages).not.toContain("content_returned");
+  });
+
+  it("paid batch returns results in request order and settles once", async () => {
+    const osv = new OsvClient(fakeOsvFetch().fn);
+    const { app, facilitator } = setup({ verify: true, settle: true }, osv);
+    const res = await paidRequest(app, "/deps/advisories/batch", { method: "POST", body: batchBody(4) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.count).toBe(4);
+    expect(body.results.map((r: { version: string }) => r.version)).toEqual(["4.17.20", "4.17.21", "4.17.20", "4.17.21"]);
+    expect(body.vulnerable_count).toBe(4);
+    expect(osv.upstreamCalls).toBe(2); // duplicates in one batch share the cache
+    expect(facilitator.settleCalls).toBe(1);
+  });
+
+  it("paid batch with one upstream failure is not charged", async () => {
+    const { app, facilitator } = setup({ verify: true, settle: true }, new OsvClient(fakeOsvFetch({ fail: "500" }).fn));
+    const res = await paidRequest(app, "/deps/advisories/batch", { method: "POST", body: batchBody(3) });
+    expect(res.status).toBe(502);
+    expect(facilitator.settleCalls).toBe(0);
+  });
+
+  it("openapi, llms.txt and the preview page describe the new endpoints with prices and attribution", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const oa = await (await app.request("/openapi.json")).json();
+    expect(oa.paths["/deps/advisories"].get["x-x402-price"]).toBe("$0.005");
+    expect(oa.paths["/deps/advisories/batch"].post["x-x402-price"]).toBe("$0.02");
+    expect(oa.paths["/deps/advisories"].get.responses["502"]).toBeTruthy();
+    for (const path of ["/llms.txt", "/"]) {
+      const text = await (await app.request(path)).text();
+      expect(text).toContain("/deps/advisories");
+      expect(text).toContain("$0.02");
+      expect(text).toContain("OSV.dev");
+      expect(text).toContain("CC-BY 4.0");
     }
   });
 });

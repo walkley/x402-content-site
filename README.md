@@ -1,6 +1,9 @@
 # x402-content-site
 
-Pay-per-call data APIs for AI agents, paid in USDC over [x402](https://www.x402.org). The first product answers one question that generic holiday APIs get wrong: **is this date a working day in mainland China?** It applies the State Council's annual holiday notice, including weekend makeup workdays (调休补班).
+Pay-per-call data APIs for AI agents, paid in USDC over [x402](https://www.x402.org). Two products:
+
+- **China workday calendar:** is this date a working day in mainland China? It applies the State Council's holiday notices, including weekend makeup workdays (调休补班), which generic holiday APIs get wrong.
+- **Package vulnerability advisories:** which known advisories (CVE/GHSA/PYSEC/GO/RUSTSEC) affect one exact version of an npm, PyPI, Go, crates.io or Maven package, with CVSS, affected ranges and fixed versions. Data from [OSV.dev](https://osv.dev).
 
 The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs on AWS Lambda (Node 22) behind an Amazon API Gateway REST API, defined with AWS CDK in `infra/`. Locally it runs as a plain Node server.
 
@@ -10,14 +13,38 @@ The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs 
 |---|---|---|
 | `GET /cn/workday?date=YYYY-MM-DD` | $0.003 | `is_workday`, `is_public_holiday`, `is_makeup_workday`, `holiday_name`, `kind`, `weekday`, `source_url`, `data_updated` |
 | `GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD` | $0.005 | `calendar_days`, `workday_count`, `workdays[]` (inclusive range, at most 366 days, may cross years) |
-| `GET /` | free | Human preview page: description, schema, one example, data update date, source links |
+| `GET /deps/advisories?ecosystem=npm\|PyPI\|Go\|crates.io\|Maven&name=…&version=…` | $0.005 | `vulnerable`, `advisory_count`, `advisories[]` (`id`, `aliases`, `summary`, `severity.level`, `severity.cvss[]`, `affected[].ranges`, `fixed_versions`, `published`, `modified`, `references`, `url`, `license`), `data_fetched_at`, `queried_at` |
+| `POST /deps/advisories/batch` with `{"packages":[{ecosystem,name,version}, …]}` (1–50) | $0.02 | `count`, `vulnerable_count`, `results[]` in request order, each shaped like the single query |
+| `GET /` | free | Human preview page: description, schema, examples, data update date, source links |
 | `GET /llms.txt` | free | Agent-oriented summary |
 | `GET /openapi.json` | free | OpenAPI 3.1 with full input/output schemas and examples |
 | `GET /health` | free | Liveness |
 
-Coverage is 2020-01-01 to 2027-12-31. A paid route validates its input **before** asking for payment: a malformed date, a reversed or too-long range, or a year without data gets a free `400`/`404` and never a `402`.
+Calendar coverage is 2020-01-01 to 2027-12-31. Every paid route validates its input **before** asking for payment: a malformed date, a reversed or too-long range, a year without data, an unknown ecosystem, a missing name or version (Maven names must be `groupId:artifactId`), or a bad batch body gets a free `400`/`404` and never a `402`. Batch bodies over 64 KB get `413`.
 
-Without a payment header a paid route returns `402` with a `PAYMENT-REQUIRED` header (x402 v2, scheme `exact`). Both paid routes declare the Bazaar discovery extension (`declareDiscoveryExtension`) with input/output JSON schema, an example, `serviceName` and tags. Payment is settled only after the handler succeeds. If settlement fails the client gets the settlement error and none of the paid content.
+Without a payment header a paid route returns `402` with a `PAYMENT-REQUIRED` header (x402 v2, scheme `exact`). All paid routes declare the Bazaar discovery extension (`declareDiscoveryExtension`) with input/output JSON schema, an example, `serviceName` and tags. Payment is settled only after the handler succeeds. If settlement fails the client gets the settlement error and none of the paid content.
+
+### How the advisory endpoints use OSV.dev
+
+- OSV.dev is called only after the payment is verified: `POST https://api.osv.dev/v1/query` with a 5 s timeout and an identifying `User-Agent`, following `next_page_token` for up to 5 pages (`truncated: true` beyond that). A batch runs single queries 10 at a time.
+- Results are cached in memory per Lambda container for 1 hour (at most 5,000 package versions; concurrent misses for the same version share one upstream call). `data_fetched_at` says when the data came from OSV.dev.
+- **Upstream failure is not charged.** If OSV.dev times out, is unreachable, or returns an error or invalid JSON, the handler answers `502 upstream_unavailable`. The x402 middleware only settles after a response below 400, so the verified payment is never settled and no USDC moves. In a batch, one failed package fails the whole call, again unsettled. The funnel log records this as stage `handler_error`.
+- Only the queried package's `affected` entries are returned (a GHSA record for lodash also lists lodash-es and others).
+
+### Data sources and licenses
+
+| Data | Source | License |
+|---|---|---|
+| China holidays | State Council notices on www.gov.cn, see `data/cn-holidays/SOURCES.md` | Official administrative documents, excluded from copyright by Art. 5 of the PRC Copyright Law |
+| Package advisories | [OSV.dev](https://osv.dev) API and aggregation | Apache-2.0. The maintainers confirmed there are no restrictions on commercial use ([google/osv.dev#1884](https://github.com/google/osv.dev/issues/1884)). |
+| ↳ `GHSA-*` | GitHub Advisory Database | CC-BY 4.0 |
+| ↳ `PYSEC-*` | PyPI Advisory Database | CC-BY 4.0 |
+| ↳ `GO-*` | Go Vulnerability Database | CC-BY 4.0 |
+| ↳ `RUSTSEC-*` | Rust Advisory Database | CC0 1.0 |
+| ↳ `MAL-*` | OpenSSF Malicious Packages | Apache-2.0 |
+| ↳ `PSF-*` | Python Software Foundation Database | CC-BY 4.0 |
+
+Source licenses are listed on [OSV.dev data sources](https://google.github.io/osv.dev/data/). Every advisory in a response carries its `license`, `source_database` and osv.dev `url`, which is the attribution CC-BY 4.0 requires. A record whose ID prefix is not in the table is returned with ids, versions and links only; its `summary` is `null` and `license` is `see source record`. The OSV.dev sources with restrictive licenses (Chainguard CC-BY-NC-ND, Ubuntu CC-BY-SA) cover OS packages, not the five ecosystems this API accepts.
 
 ## Configuration
 
@@ -80,7 +107,7 @@ npm run typecheck                                 # app and infra
 BUYER_KEY_FILE=/tmp/x402-buyer.key BASE_URL=http://localhost:8787 npm run e2e:sepolia
 ```
 
-The script pays both routes with `@x402/fetch` and prints status, the decoded `PAYMENT-RESPONSE` (with the transaction hash) and the buyer's USDC balance before and after.
+By default the script pays all four paid routes with `@x402/fetch` (arguments: GET paths, or `"POST <path> <json>"`) and prints status, the decoded `PAYMENT-RESPONSE` (with the transaction hash) and the buyer's USDC balance before and after.
 
 ## Deploy (AWS CDK)
 
@@ -121,6 +148,7 @@ Every paid request writes one JSON line per stage to stdout, which Lambda sends 
 | `request` | A paid route was called. Carries `status` and `reason: rejected_input: …` if input validation refused it. |
 | `402_returned` | The response was a 402 (no payment, or the payment was refused). `reason` is the x402 error. |
 | `payment_header_received` | The request carried `PAYMENT-SIGNATURE` / `X-PAYMENT`. |
+| `handler_error` | The handler failed after verification (OSV.dev down, facilitator error): status ≥ 500, not settled, not charged. |
 | `verify_ok` / `verify_fail` | Facilitator verification result. `verify_fail` has `reason`, also for headers rejected before reaching the facilitator. |
 | `settle_ok` / `settle_fail` | Settlement result. `settle_ok` has `tx`; `settle_fail` has `reason`. |
 | `content_returned` | Paid content was sent after a successful settlement. |

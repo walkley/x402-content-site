@@ -1,0 +1,54 @@
+{
+  "ecosystem": "npm",
+  "name": "lodash",
+  "version": "4.17.20",
+  "vulnerable": true,
+  "advisory_count": 1,
+  "advisories": [
+    {
+      "id": "GHSA-35jh-r3h4-6jhm",
+      "aliases": [
+        "CVE-2021-23337"
+      ],
+      "summary": "Command Injection in lodash",
+      "severity": {
+        "level": "HIGH",
+        "cvss": [
+          {
+            "type": "CVSS_V3",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+          }
+        ]
+      },
+      "affected": [
+        {
+          "package": "lodash",
+          "ranges": [
+            {
+              "type": "SEMVER",
+              "introduced": "0",
+              "fixed": "4.17.21"
+            }
+          ]
+        }
+      ],
+      "fixed_versions": [
+        "4.17.21"
+      ],
+      "published": "2021-05-06T16:05:51Z",
+      "modified": "2026-10-17T02:55:38.085813876Z",
+      "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+        "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+        "https://www.oracle.com/security-alerts/cpuoct2021.html"
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm",
+      "license": "CC-BY-4.0",
+      "source_database": "GitHub Advisory Database"
+    }
+  ],
+  "truncated": false,
+  "data_fetched_at": "2026-11-24T08:00:00.000Z",
+  "queried_at": "2026-11-24T08:00:00.000Z",
+  "source": "OSV.dev (https://osv.dev); per-advisory license in `license`"
+}

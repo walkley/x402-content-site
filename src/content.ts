@@ -1,10 +1,26 @@
 // Static descriptions shared by the x402 route config, /openapi.json, /llms.txt and the preview page.
 import { MAX_RANGE_DAYS } from "./calendar.js";
 import { calendar } from "./data.js";
+import {
+  ADVISORIES_DESCRIPTION,
+  ADVISORIES_EXAMPLE_INPUT,
+  ADVISORIES_EXAMPLE_OUTPUT,
+  ADVISORIES_INPUT_SCHEMA,
+  ADVISORIES_OUTPUT_SCHEMA,
+  BATCH_DESCRIPTION,
+  BATCH_EXAMPLE_INPUT,
+  BATCH_EXAMPLE_OUTPUT,
+  BATCH_INPUT_SCHEMA,
+  BATCH_OUTPUT_SCHEMA,
+  DEPS_SERVICE_NAME,
+  OSV_ATTRIBUTION,
+} from "./content-deps.js";
+import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
 
 export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
 export const REPO_URL = "https://github.com/walkley/x402-content-site";
+export const SITE_NAME = "x402 data APIs for agents";
 
 const DATE_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
 
@@ -87,6 +103,8 @@ export interface PriceInfo {
   network: string;
   workdayPrice: string;
   businessDaysPrice: string;
+  advisoriesPrice: string;
+  batchPrice: string;
 }
 
 export function openApi(baseUrl: string, p: PriceInfo) {
@@ -105,12 +123,14 @@ export function openApi(baseUrl: string, p: PriceInfo) {
   });
   const err = { description: "Invalid input or date outside the covered range. Not charged." };
   const upstream = { description: "Facilitator unavailable or returned an error. Not charged; retry later." };
+  const osvDown = { description: "OSV.dev unavailable, timed out (5 s) or returned an error, or the facilitator failed. Not charged; retry later." };
+  const depsErr = { description: "Invalid ecosystem, name, version or batch body. Not charged." };
   return {
     openapi: "3.1.0",
     info: {
-      title: SERVICE_NAME,
-      version: "1.0.0",
-      description: `Pay-per-call x402 API for mainland China workdays. Data ${calendar.firstDate}..${calendar.lastDate}, updated ${calendar.dataUpdated}.`,
+      title: SITE_NAME,
+      version: "1.1.0",
+      description: `Pay-per-call x402 APIs. ${SERVICE_NAME}: mainland China workdays, data ${calendar.firstDate}..${calendar.lastDate}, updated ${calendar.dataUpdated}. ${DEPS_SERVICE_NAME}: ${OSV_ATTRIBUTION}`,
     },
     servers: [{ url: baseUrl }],
     paths: {
@@ -145,15 +165,50 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           },
         },
       },
+      "/deps/advisories": {
+        get: {
+          summary: ADVISORIES_DESCRIPTION,
+          "x-x402-price": p.advisoriesPrice,
+          parameters: (["ecosystem", "name", "version"] as const).map((n) => ({
+            name: n,
+            in: "query",
+            required: true,
+            schema: ADVISORIES_INPUT_SCHEMA.properties[n],
+          })),
+          responses: {
+            "200": ok("Advisories affecting this version", ADVISORIES_OUTPUT_SCHEMA, ADVISORIES_EXAMPLE_OUTPUT),
+            "400": depsErr,
+            "402": paid(p.advisoriesPrice),
+            "502": osvDown,
+          },
+        },
+      },
+      "/deps/advisories/batch": {
+        post: {
+          summary: BATCH_DESCRIPTION,
+          "x-x402-price": p.batchPrice,
+          requestBody: { required: true, content: { "application/json": { schema: BATCH_INPUT_SCHEMA, example: BATCH_EXAMPLE_INPUT } } },
+          responses: {
+            "200": ok("Advisories per package, in request order", BATCH_OUTPUT_SCHEMA, BATCH_EXAMPLE_OUTPUT),
+            "400": depsErr,
+            "402": paid(p.batchPrice),
+            "502": osvDown,
+          },
+        },
+      },
       "/health": { get: { summary: "Liveness check (free)", responses: { "200": { description: "ok" } } } },
     },
   };
 }
 
 export function llmsTxt(baseUrl: string, p: PriceInfo): string {
-  return `# ${SERVICE_NAME}
+  return `# ${SITE_NAME}
 
-> Pay-per-call x402 API answering whether a date is a working day in mainland China, including official holidays and weekend makeup workdays (调休补班) from State Council (国务院) notices. Payment: USDC via x402 v2, scheme "exact", network ${p.network}.
+Pay-per-call x402 APIs. Payment: USDC via x402 v2, scheme "exact", network ${p.network}. Invalid input is rejected with 400/404 before any payment is requested; upstream or facilitator failures return 502 and are not charged.
+
+## ${SERVICE_NAME}
+
+> Answers whether a date is a working day in mainland China, including official holidays and weekend makeup workdays (调休补班) from State Council (国务院) notices. Payment: USDC via x402 v2, scheme "exact", network ${p.network}.
 
 Coverage: ${calendar.firstDate} to ${calendar.lastDate}. Data updated: ${calendar.dataUpdated}. Invalid input returns 400/404 before any payment is requested.
 
@@ -162,16 +217,28 @@ Coverage: ${calendar.firstDate} to ${calendar.lastDate}. Data updated: ${calenda
 - [GET ${baseUrl}/cn/workday?date=YYYY-MM-DD](${baseUrl}/cn/workday?date=2026-02-14): ${p.workdayPrice}. ${WORKDAY_DESCRIPTION}
 - [GET ${baseUrl}/cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD](${baseUrl}/cn/business-days?from=2026-09-28&to=2026-10-11): ${p.businessDaysPrice}. ${BUSINESS_DAYS_DESCRIPTION}
 
+## ${DEPS_SERVICE_NAME}
+
+> Known vulnerabilities for an exact package version. Ecosystems: ${ECOSYSTEMS.join(", ")}.
+
+- [GET ${baseUrl}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20](${baseUrl}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20): ${p.advisoriesPrice}. ${ADVISORIES_DESCRIPTION}
+- POST ${baseUrl}/deps/advisories/batch with JSON {"packages":[{"ecosystem","name","version"}, ...]} (max ${MAX_BATCH}): ${p.batchPrice}. ${BATCH_DESCRIPTION}
+
+${OSV_ATTRIBUTION}
+
 ## Free
 
 - [OpenAPI](${baseUrl}/openapi.json): full input/output JSON schema and examples
 - [Preview page](${baseUrl}/)
 - [Source code and data](${REPO_URL})
 
-## Example
+## Examples
 
 GET /cn/workday?date=2026-02-14 returns:
 ${JSON.stringify(WORKDAY_EXAMPLE_OUTPUT)}
+
+GET /deps/advisories?${new URLSearchParams(ADVISORIES_EXAMPLE_INPUT)} returns (trimmed to one advisory):
+${JSON.stringify(ADVISORIES_EXAMPLE_OUTPUT)}
 `;
 }
 
@@ -183,15 +250,19 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
     .join("");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${SERVICE_NAME} — x402 API</title>
+<title>${SITE_NAME}</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#222}code,pre{background:#f4f4f4;border-radius:4px}pre{padding:.8rem;overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem;text-align:left}</style>
 </head><body>
+<h1>${SITE_NAME}</h1>
+<p>Pay-per-call data for AI agents, paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>. Full schemas: <a href="/openapi.json">/openapi.json</a>. Agent summary: <a href="/llms.txt">/llms.txt</a>.</p>
+<table><tr><th>Endpoint</th><th>Price</th></tr>
+<tr><td><code>GET /cn/workday?date=YYYY-MM-DD</code></td><td>${esc(p.workdayPrice)}</td></tr>
+<tr><td><code>GET /cn/business-days?from=YYYY-MM-DD&amp;to=YYYY-MM-DD</code> (≤ ${MAX_RANGE_DAYS} days)</td><td>${esc(p.businessDaysPrice)}</td></tr>
+<tr><td><code>GET /deps/advisories?ecosystem=&amp;name=&amp;version=</code></td><td>${esc(p.advisoriesPrice)}</td></tr>
+<tr><td><code>POST /deps/advisories/batch</code> (≤ ${MAX_BATCH} packages)</td><td>${esc(p.batchPrice)}</td></tr></table>
 <h1>${SERVICE_NAME}</h1>
 <p>中国法定节假日与调休工作日查询。A pay-per-call API for AI agents: is a date a working day in mainland China, counting official holidays and weekend makeup workdays (调休补班) from State Council notices. Paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>.</p>
 <p>Coverage <b>${calendar.firstDate}</b> to <b>${calendar.lastDate}</b>. Data updated <b>${calendar.dataUpdated}</b>.</p>
-<table><tr><th>Endpoint</th><th>Price</th></tr>
-<tr><td><code>GET /cn/workday?date=YYYY-MM-DD</code></td><td>${esc(p.workdayPrice)}</td></tr>
-<tr><td><code>GET /cn/business-days?from=YYYY-MM-DD&amp;to=YYYY-MM-DD</code> (≤ ${MAX_RANGE_DAYS} days)</td><td>${esc(p.businessDaysPrice)}</td></tr></table>
 <h2>Example</h2>
 <p><code>GET ${esc(baseUrl)}/cn/workday?date=2026-02-14</code></p>
 <pre>${esc(JSON.stringify(WORKDAY_EXAMPLE_OUTPUT, null, 2))}</pre>
@@ -201,6 +272,13 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <h2>Sources</h2>
 <p>Each year follows the State Council (国务院办公厅) holiday notice on gov.cn as actually applied nationwide. 2020 includes the Spring Festival extension (国办发明电〔2020〕1号): holiday until 2020-02-02, work resumed 2020-02-03. Provincial schedules are not included.</p>
 <ul>${sourceList}</ul>
+<h1>${DEPS_SERVICE_NAME}</h1>
+<p>Known security advisories affecting one exact package version (${ECOSYSTEMS.join(", ")}): CVE aliases, CVSS, affected ranges, fixed versions and links. Fetched live from OSV.dev and cached up to one hour; if OSV.dev is down the call fails with 502 and is not charged.</p>
+<h2>Example</h2>
+<p><code>GET ${esc(baseUrl)}/deps/advisories?ecosystem=npm&amp;name=lodash&amp;version=4.17.20</code> (trimmed to one advisory)</p>
+<pre>${esc(JSON.stringify(ADVISORIES_EXAMPLE_OUTPUT, null, 2))}</pre>
+<h2>Sources and licenses</h2>
+<p>${esc(OSV_ATTRIBUTION)} See <a href="https://google.github.io/osv.dev/data/">OSV.dev data sources</a>.</p>
 <p><a href="${REPO_URL}">Source code and data</a></p>
 </body></html>`;
 }

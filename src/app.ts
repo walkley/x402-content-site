@@ -5,7 +5,23 @@ import type { Network } from "@x402/core/types";
 import { decodePaymentRequiredHeader, type FacilitatorConfig } from "@x402/core/http";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
+import { bodyLimit } from "hono/body-limit";
 import { InputError } from "./calendar.js";
+import { OsvClient, UpstreamError, parseBatch, parsePackageQuery } from "./advisories.js";
+import {
+  ADVISORIES_DESCRIPTION,
+  ADVISORIES_EXAMPLE_INPUT,
+  ADVISORIES_EXAMPLE_OUTPUT,
+  ADVISORIES_INPUT_SCHEMA,
+  ADVISORIES_OUTPUT_SCHEMA,
+  BATCH_DESCRIPTION,
+  BATCH_EXAMPLE_INPUT,
+  BATCH_EXAMPLE_OUTPUT,
+  BATCH_INPUT_SCHEMA,
+  BATCH_OUTPUT_SCHEMA,
+  DEPS_SERVICE_NAME,
+  DEPS_TAGS,
+} from "./content-deps.js";
 import { calendar } from "./data.js";
 import { FunnelLogger } from "./funnel.js";
 import {
@@ -39,6 +55,8 @@ export const DEFAULT_NETWORK = "eip155:84532"; // Base Sepolia
 export const MAINNET_NETWORK = "eip155:8453"; // Base
 export const WORKDAY_PRICE = "$0.003";
 export const BUSINESS_DAYS_PRICE = "$0.005";
+export const ADVISORIES_PRICE = "$0.005";
+export const BATCH_PRICE = "$0.02";
 
 export interface AppConfig {
   network: Network;
@@ -52,6 +70,8 @@ export interface AppConfig {
   /** Public base URL used in /openapi.json and /llms.txt; defaults to the request origin. */
   publicBaseUrl?: string;
   funnel?: FunnelLogger;
+  /** OSV.dev client (tests inject one with a fake fetch). */
+  osv?: OsvClient;
 }
 
 type Env = Record<string, string | undefined>;
@@ -80,9 +100,25 @@ export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig 
   return { ...base, facilitatorUrl, facilitatorConfig: { url: facilitatorUrl } };
 }
 
-const PAID_ROUTES: Record<string, (c: Context) => void> = {
-  "/cn/workday": (c) => calendar.lookup(c.req.query("date")),
-  "/cn/business-days": (c) => calendar.validateRange(c.req.query("from"), c.req.query("to")),
+const advisoryQuery = (c: Context) =>
+  parsePackageQuery({ ecosystem: c.req.query("ecosystem"), name: c.req.query("name"), version: c.req.query("version") });
+
+async function batchQuery(c: Context) {
+  let body: unknown;
+  try {
+    body = await c.req.json(); // Hono caches the parsed body for the payment middleware and the handler.
+  } catch {
+    throw new InputError("invalid_body", "body must be valid JSON");
+  }
+  return parseBatch(body);
+}
+
+/** Paid routes and their free pre-payment input validation. */
+const PAID_ROUTES: Record<string, { method: "GET" | "POST"; validate: (c: Context) => unknown }> = {
+  "/cn/workday": { method: "GET", validate: (c) => calendar.lookup(c.req.query("date")) },
+  "/cn/business-days": { method: "GET", validate: (c) => calendar.validateRange(c.req.query("from"), c.req.query("to")) },
+  "/deps/advisories": { method: "GET", validate: advisoryQuery },
+  "/deps/advisories/batch": { method: "POST", validate: batchQuery },
 };
 
 interface RequestMeta {
@@ -99,6 +135,7 @@ function inputErrorResponse(c: Context, e: InputError) {
 
 export function createApp(cfg: AppConfig) {
   const funnel = cfg.funnel ?? new FunnelLogger();
+  const osv = cfg.osv ?? new OsvClient();
   // Correlates x402 hook callbacks (which only see the request context) with the HTTP request.
   // Keyed by the payment header string; entries are removed when the request finishes.
   const inflight = new Map<string, RequestMeta>();
@@ -173,13 +210,38 @@ export function createApp(cfg: AppConfig) {
         output: { example: BUSINESS_DAYS_EXAMPLE_OUTPUT, schema: BUSINESS_DAYS_OUTPUT_SCHEMA },
       }),
     },
+    "GET /deps/advisories": {
+      accepts: accepts(ADVISORIES_PRICE),
+      description: ADVISORIES_DESCRIPTION,
+      mimeType: "application/json",
+      serviceName: DEPS_SERVICE_NAME,
+      tags: DEPS_TAGS,
+      extensions: declareDiscoveryExtension({
+        input: ADVISORIES_EXAMPLE_INPUT,
+        inputSchema: ADVISORIES_INPUT_SCHEMA,
+        output: { example: ADVISORIES_EXAMPLE_OUTPUT, schema: ADVISORIES_OUTPUT_SCHEMA },
+      }),
+    },
+    "POST /deps/advisories/batch": {
+      accepts: accepts(BATCH_PRICE),
+      description: BATCH_DESCRIPTION,
+      mimeType: "application/json",
+      serviceName: DEPS_SERVICE_NAME,
+      tags: DEPS_TAGS,
+      extensions: declareDiscoveryExtension({
+        bodyType: "json",
+        input: BATCH_EXAMPLE_INPUT,
+        inputSchema: BATCH_INPUT_SCHEMA,
+        output: { example: BATCH_EXAMPLE_OUTPUT, schema: BATCH_OUTPUT_SCHEMA },
+      }),
+    },
   };
 
   // Runs before the payment middleware: funnel bookkeeping, and input validation so a bad
   // request gets a free 400/404 instead of a 402 the agent would pay for and then fail.
   const funnelAndValidate: MiddlewareHandler = async (c, next) => {
-    const validate = PAID_ROUTES[c.req.path];
-    if (!validate || c.req.method !== "GET") return next();
+    const paid = PAID_ROUTES[c.req.path];
+    if (!paid || c.req.method !== paid.method) return next();
     const meta: RequestMeta = {
       route: c.req.path,
       request_id: crypto.randomUUID(),
@@ -187,7 +249,7 @@ export function createApp(cfg: AppConfig) {
     };
     const paymentHeader = c.req.header("payment-signature") || c.req.header("x-payment");
     try {
-      validate(c);
+      await paid.validate(c);
     } catch (e) {
       if (!(e instanceof InputError)) throw e;
       funnel.log({ stage: "request", ...meta, status: e.status, reason: `rejected_input: ${e.code}` });
@@ -221,13 +283,22 @@ export function createApp(cfg: AppConfig) {
       funnel.log({ stage: "402_returned", ...meta, status, reason });
     } else if (status < 400 && meta.settled) {
       funnel.log({ stage: "content_returned", ...meta, status });
+    } else if (status >= 500) {
+      // Upstream or facilitator failure after verification: settlement is skipped, nothing is charged.
+      funnel.log({ stage: "handler_error", ...meta, status, reason: c.get("failure") ?? `http ${status}` });
     }
   };
 
-  const prices: PriceInfo = { network: cfg.network, workdayPrice: WORKDAY_PRICE, businessDaysPrice: BUSINESS_DAYS_PRICE };
+  const prices: PriceInfo = {
+    network: cfg.network,
+    workdayPrice: WORKDAY_PRICE,
+    businessDaysPrice: BUSINESS_DAYS_PRICE,
+    advisoriesPrice: ADVISORIES_PRICE,
+    batchPrice: BATCH_PRICE,
+  };
   const baseUrl = (c: Context) => cfg.publicBaseUrl ?? new URL(c.req.url).origin;
 
-  const app = new Hono();
+  const app = new Hono<{ Variables: { failure?: string } }>();
   app.onError((err, c) => {
     console.error(JSON.stringify({ ts: new Date().toISOString(), type: "error", route: c.req.path, message: err.message }));
     return c.json({ error: "internal_error" }, 500);
@@ -240,13 +311,40 @@ export function createApp(cfg: AppConfig) {
     c.json({ ok: true, network: cfg.network, facilitator: cfg.facilitatorKind, data_updated: calendar.dataUpdated }),
   );
 
-  app.use("/cn/*", funnelAndValidate);
-  app.use("/cn/*", paymentMiddleware(routes, server));
+  // Batch bodies are at most 50 small objects; refuse anything larger before parsing.
+  app.use("/deps/advisories/batch", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
+  const payment = paymentMiddleware(routes, server);
+  for (const prefix of ["/cn/*", "/deps/*"]) {
+    app.use(prefix, funnelAndValidate);
+    app.use(prefix, payment);
+  }
 
   app.get("/cn/workday", (c) => c.json({ ...calendar.lookup(c.req.query("date")), data_updated: calendar.dataUpdated }));
   app.get("/cn/business-days", (c) =>
     c.json({ ...calendar.businessDays(c.req.query("from"), c.req.query("to")), data_updated: calendar.dataUpdated }),
   );
+
+  // A handler status >= 400 makes the payment middleware skip settlement, so an OSV.dev failure is never charged.
+  const upstreamFailure = (c: Context, e: unknown) => {
+    if (!(e instanceof UpstreamError)) throw e;
+    c.set("failure", e.message);
+    return c.json({ error: "upstream_unavailable", message: `${e.message}. You were not charged; retry later.` }, 502);
+  };
+  app.get("/deps/advisories", async (c) => {
+    try {
+      return c.json(await osv.query(advisoryQuery(c)));
+    } catch (e) {
+      return upstreamFailure(c, e);
+    }
+  });
+  app.post("/deps/advisories/batch", async (c) => {
+    try {
+      const results = await osv.queryMany(await batchQuery(c));
+      return c.json({ count: results.length, vulnerable_count: results.filter((r) => r.vulnerable).length, results });
+    } catch (e) {
+      return upstreamFailure(c, e);
+    }
+  });
 
   return app;
 }
