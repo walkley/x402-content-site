@@ -122,6 +122,12 @@ export const FACILITATOR_INIT_TIMEOUT_MS = 5_000;
  * function timeout changes. A settle cut off here may still land on chain (same as a Lambda timeout would).
  */
 export const REQUEST_DEADLINE_MS = 23_000;
+/**
+ * Time kept for settlement after the SEC calls: they must finish by request start + 23 s minus
+ * this, so a slow SEC fails as a 502 (not charged) instead of leaving settlement no time. PayAI settles in a few
+ * seconds; shortcut: fixed reserve, upgrade if settle latency is measured above it.
+ */
+export const SETTLE_RESERVE_MS = 8_000;
 
 type Env = Record<string, string | undefined>;
 
@@ -663,16 +669,20 @@ export function createApp(cfg: AppConfig) {
     }
   });
 
+  const secDeadline = () => {
+    const end = deadline.getStore();
+    return end === undefined ? undefined : end - SETTLE_RESERVE_MS;
+  };
   app.get("/sec/insider-trades", async (c) => {
     try {
-      return c.json(await sec.insiderTrades(insiderQuery(c)));
+      return c.json(await sec.insiderTrades(insiderQuery(c), secDeadline()));
     } catch (e) {
       return upstreamFailure(c, e);
     }
   });
   app.get("/sec/latest-filings", async (c) => {
     try {
-      return c.json(await sec.latestFilings(filingsQuery(c)));
+      return c.json(await sec.latestFilings(filingsQuery(c), secDeadline()));
     } catch (e) {
       return upstreamFailure(c, e);
     }

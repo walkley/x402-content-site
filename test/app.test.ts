@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FacilitatorClient } from "@x402/core/server";
 import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePaymentSignatureHeader } from "@x402/core/http";
-import { BATCH_PRICE, configFromEnv, createApp } from "../src/app.js";
+import { BATCH_PRICE, SETTLE_RESERVE_MS, configFromEnv, createApp } from "../src/app.js";
 import { ADVISORIES_DESCRIPTION, BATCH_DESCRIPTION } from "../src/content-deps.js";
 import { SKILL_DESCRIPTION, perPackagePrice } from "../src/content.js";
 import { FunnelLogger } from "../src/funnel.js";
@@ -858,6 +858,25 @@ describe("SEC EDGAR endpoints", () => {
     const stages = events().map((e) => e.stage);
     expect(stages).toContain("handler_error");
     expect(stages).not.toContain("settle_ok");
+  });
+
+  it("SEC calls stop SETTLE_RESERVE_MS before the request deadline: 502, not settled", async () => {
+    const sec = secClient();
+    const app = createApp({
+      network: NETWORK,
+      payTo: PAY_TO,
+      facilitatorKind: "x402org",
+      facilitatorUrl: "http://unused",
+      facilitator: new FakeFacilitator({ verify: true, settle: true }),
+      funnel: new FunnelLogger(() => {}),
+      sec,
+      requestDeadlineMs: SETTLE_RESERVE_MS, // leaves the SEC calls no time at all
+    });
+    const res = await paidRequest(app, AAPL);
+    expect(res.status).toBe(502);
+    expect((await res.json()).message).toMatch(/deadline/);
+    expect(res.headers.get("payment-response")).toBeNull();
+    expect(sec.upstreamCalls).toBe(0);
   });
 
   it("openapi, llms.txt, SKILL.md and the preview page describe the SEC endpoints with prices and the no-endorsement note", async () => {

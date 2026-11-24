@@ -195,6 +195,15 @@ describe("SecClient with recorded fixtures", () => {
     expect(c.upstreamCalls).toBeLessThanOrEqual(Math.ceil(SEC_DEADLINE_MS / 4_000));
   });
 
+  it("an earlier caller deadline (the settlement cut-off) wins over SEC_DEADLINE_MS", async () => {
+    const now = 1_000_000;
+    const c = new SecClient("ua", fakeSecFetch().fn, () => now, noWait);
+    await expect(c.insiderTrades({ ticker: "AAPL" }, now)).rejects.toThrow(/deadline/);
+    expect(c.upstreamCalls).toBe(0);
+    const fresh = new SecClient("ua", fakeSecFetch().fn, () => now, noWait);
+    await expect(fresh.latestFilings({ ticker: "AAPL", limit: 1 }, now + 1_000)).resolves.toMatchObject({ count: 1 });
+  });
+
   it("concurrent requests for the same company share the upstream calls", async () => {
     const c = client();
     await Promise.all([c.insiderTrades({ ticker: "AAPL" }), c.insiderTrades({ ticker: "AAPL" })]);

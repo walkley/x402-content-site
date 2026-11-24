@@ -8,7 +8,10 @@ import { UpstreamError } from "./advisories.js";
 export const SEC_DATA = "https://data.sec.gov";
 export const SEC_WWW = "https://www.sec.gov";
 export const SEC_TIMEOUT_MS = 5_000;
-/** Wall-clock budget for all SEC calls of one paid request; leaves time to settle before the 23 s request deadline. */
+/**
+ * Wall-clock budget for all SEC calls of one paid request. The app also passes the request's own deadline minus the
+ * time it keeps for settlement, and the earlier of the two applies.
+ */
 export const SEC_DEADLINE_MS = 12_000;
 /** Most recent Form 4 / 4/A filings parsed per insider-trades request. */
 export const INSIDER_FILINGS = 4;
@@ -21,9 +24,13 @@ export const MAX_SEC_CALLS_PER_REQUEST = 2 + INSIDER_FILINGS;
 export const SEC_RATE_PER_SEC = 4;
 export const TICKERS_TTL_MS = 24 * 60 * 60 * 1000;
 export const SUBMISSIONS_TTL_MS = 10 * 60 * 1000;
-const SUBMISSIONS_MAX_ENTRIES = 500;
+// Memory bounds per Lambda container (256 MB), measured with full caches on 2026-11-24: 100 companies x 300 filings
+// about 25 MB; 1,000 parsed Form 4 documents of 9 transactions each about 22 MB.
+const SUBMISSIONS_MAX_ENTRIES = 100;
+/** Filings kept per company, newest first: enough for the 4 latest Form 4s and limit=50 of a common form. */
+export const SUBMISSIONS_MAX_FILINGS = 300;
 /** Filed Form 4 documents never change (an amendment is a new accession), so they are kept until evicted. */
-const FORM4_MAX_ENTRIES = 5_000;
+const FORM4_MAX_ENTRIES = 1_000;
 export const MAX_FILINGS_LIMIT = 50;
 export const DEFAULT_FILINGS_LIMIT = 20;
 
@@ -323,8 +330,8 @@ export class SecClient {
     private readonly wait: (ms: number) => Promise<void> = sleep,
   ) {}
 
-  private budget(): Budget {
-    return { deadline: this.now() + SEC_DEADLINE_MS, calls: MAX_SEC_CALLS_PER_REQUEST };
+  private budget(deadline = Infinity): Budget {
+    return { deadline: Math.min(this.now() + SEC_DEADLINE_MS, deadline), calls: MAX_SEC_CALLS_PER_REQUEST };
   }
 
   /** Waits for this container's next SEC slot (SEC_RATE_PER_SEC), then fetches. 404 returns null. */
@@ -333,10 +340,10 @@ export class SecClient {
     budget.calls--;
     const start = Math.max(this.now(), this.nextSlot);
     this.nextSlot = start + 1000 / SEC_RATE_PER_SEC;
-    if (start >= budget.deadline) throw new UpstreamError(`SEC EDGAR deadline of ${SEC_DEADLINE_MS / 1000}s exceeded`);
+    if (start >= budget.deadline) throw new UpstreamError("SEC EDGAR deadline exceeded");
     if (start > this.now()) await this.wait(start - this.now());
     const remaining = budget.deadline - this.now();
-    if (remaining <= 0) throw new UpstreamError(`SEC EDGAR deadline of ${SEC_DEADLINE_MS / 1000}s exceeded`);
+    if (remaining <= 0) throw new UpstreamError("SEC EDGAR deadline exceeded");
     const timeout = Math.min(SEC_TIMEOUT_MS, remaining);
     this.upstreamCalls++;
     let res: Response;
@@ -395,7 +402,7 @@ export class SecClient {
         const v = (r[k] as unknown[] | undefined)?.[i];
         return typeof v === "string" && v !== "" ? v : null;
       };
-      const filings = r.accessionNumber.map((acc, i) => {
+      const filings = r.accessionNumber.slice(0, SUBMISSIONS_MAX_FILINGS).map((acc, i) => {
         const accession = String(acc);
         const doc = col("primaryDocument", i) ?? "";
         return {
@@ -445,8 +452,9 @@ export class SecClient {
     });
   }
 
-  async insiderTrades(q: CompanyQuery): Promise<InsiderTradesResult> {
-    const budget = this.budget();
+  /** deadline: epoch ms by which all SEC calls must be done (the app's settlement cut-off). */
+  async insiderTrades(q: CompanyQuery, deadline?: number): Promise<InsiderTradesResult> {
+    const budget = this.budget(deadline);
     const cik = await this.cikOf(q, budget);
     const sub = await this.submissionsOf(cik, budget);
     const recent = sub.filings.filter((f) => (f.form === "4" || f.form === "4/A") && f.primary_document.endsWith(".xml")).slice(0, INSIDER_FILINGS);
@@ -474,8 +482,8 @@ export class SecClient {
     };
   }
 
-  async latestFilings(q: FilingsQuery): Promise<FilingsResult> {
-    const budget = this.budget();
+  async latestFilings(q: FilingsQuery, deadline?: number): Promise<FilingsResult> {
+    const budget = this.budget(deadline);
     const cik = await this.cikOf(q, budget);
     const sub = await this.submissionsOf(cik, budget);
     const filings = sub.filings
