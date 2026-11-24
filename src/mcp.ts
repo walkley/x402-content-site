@@ -7,7 +7,7 @@
 // link to GET /sec/insider-trades. The SEC call budget (infra SEC_THROTTLE: at most 8 SEC requests per second for the
 // whole API) is spent by the throttled paid routes alone; /mcp's own throttle is not part of that sum.
 import type { Context, MiddlewareHandler } from "hono";
-import { InputError, MAX_RANGE_DAYS } from "./calendar.js";
+import { InputError, MAX_RANGE_DAYS, chinaToday } from "./calendar.js";
 import { ECOSYSTEMS, UpstreamError, parsePackageQuery, type OsvClient } from "./advisories.js";
 import type { PriceInfo } from "./content.js"; // type only: content.ts imports this module
 import { ADVISORIES_INPUT_SCHEMA } from "./content-deps.js";
@@ -61,9 +61,6 @@ export interface McpDeps {
 }
 
 const DATE = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
-
-/** Today's date (YYYY-MM-DD) in mainland China. Asia/Shanghai is a fixed UTC+8 with no daylight saving time. */
-export const chinaToday = (now = Date.now()) => new Date(now + 8 * 3_600_000).toISOString().slice(0, 10);
 
 export const SEC_TOOL = "sec_insider_trades";
 /** Ticker used when sec_insider_trades gets no arguments (directory probers send {} when no property is required). */

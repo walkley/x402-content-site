@@ -9,7 +9,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
-import { InputError } from "./calendar.js";
+import { InputError, chinaThisMonth, chinaToday } from "./calendar.js";
 import { OsvClient, UpstreamError, parseBatch, parsePackageQuery } from "./advisories.js";
 import {
   ADVISORIES_DESCRIPTION,
@@ -198,10 +198,43 @@ const insiderQuery = (c: Context) => parseCompanyQuery({ ticker: c.req.query("ti
 const filingsQuery = (c: Context) =>
   parseFilingsQuery({ ticker: c.req.query("ticker"), cik: c.req.query("cik"), form: c.req.query("form"), limit: c.req.query("limit") });
 
+/**
+ * Defaults for the /cn routes, taken once per request (cached on the context) so validation before payment and the
+ * handler after it answer the same day even across midnight. Paying buyers that send no parameters (directory probers)
+ * get today, or this month, in Asia/Shanghai instead of a 400. A default year outside the data is a free 404 from
+ * validation, before verify and settle.
+ */
+function cnDefault<T>(c: Context, make: () => T): T {
+  const cached = c.get("cnDefault") as T | undefined;
+  if (cached !== undefined) return cached;
+  const value = make();
+  c.set("cnDefault", value);
+  return value;
+}
+
+function workdayDate(c: Context): unknown {
+  const { date, from, to } = c.req.query();
+  if (from !== undefined || to !== undefined) {
+    throw new InputError("invalid_params", "/cn/workday takes only date; use /cn/business-days for from and to");
+  }
+  return date !== undefined ? date : cnDefault(c, () => chinaToday());
+}
+
+function businessDaysRange(c: Context): { from: unknown; to: unknown } {
+  const { from, to } = c.req.query();
+  return from === undefined && to === undefined ? cnDefault(c, () => chinaThisMonth()) : { from, to };
+}
+
 /** Paid routes and their free pre-payment input validation. */
 const PAID_ROUTES: Record<string, { method: "GET" | "POST"; validate: (c: Context) => unknown }> = {
-  "/cn/workday": { method: "GET", validate: (c) => calendar.lookup(c.req.query("date")) },
-  "/cn/business-days": { method: "GET", validate: (c) => calendar.validateRange(c.req.query("from"), c.req.query("to")) },
+  "/cn/workday": { method: "GET", validate: (c) => calendar.lookup(workdayDate(c)) },
+  "/cn/business-days": {
+    method: "GET",
+    validate: (c) => {
+      const { from, to } = businessDaysRange(c);
+      return calendar.validateRange(from, to);
+    },
+  },
   "/deps/advisories": { method: "GET", validate: advisoryQuery },
   "/deps/advisories/batch": { method: "POST", validate: batchQuery },
   "/sec/insider-trades": { method: "GET", validate: insiderQuery },
@@ -650,10 +683,11 @@ export function createApp(cfg: AppConfig) {
     app.use(prefix, payment);
   }
 
-  app.get("/cn/workday", (c) => c.json({ ...calendar.lookup(c.req.query("date")), data_updated: calendar.dataUpdated }));
-  app.get("/cn/business-days", (c) =>
-    c.json({ ...calendar.businessDays(c.req.query("from"), c.req.query("to")), data_updated: calendar.dataUpdated }),
-  );
+  app.get("/cn/workday", (c) => c.json({ ...calendar.lookup(workdayDate(c)), data_updated: calendar.dataUpdated }));
+  app.get("/cn/business-days", (c) => {
+    const { from, to } = businessDaysRange(c);
+    return c.json({ ...calendar.businessDays(from, to), data_updated: calendar.dataUpdated });
+  });
 
   // A handler status >= 400 makes the payment middleware skip settlement, so an OSV.dev or SEC failure is never
   // charged; nor is a ticker or CIK that SEC does not know (404, found only after payment since checking costs a call).

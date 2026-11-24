@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HolidayCalendar, InputError, MAX_RANGE_DAYS } from "../src/calendar.js";
+import { HolidayCalendar, InputError, MAX_RANGE_DAYS, chinaThisMonth, chinaToday } from "../src/calendar.js";
 import { calendar } from "../src/data.js";
 
 const kind = (d: string) => calendar.lookup(d).kind;
@@ -144,5 +144,19 @@ describe("HolidayCalendar construction", () => {
     expect(() => new HolidayCalendar([])).toThrow();
     const f = (year: number) => ({ year, source_url: "x", published: `${year - 1}-11-01`, holidays: [], makeup_workdays: [] });
     expect(() => new HolidayCalendar([f(2024), f(2026)])).toThrow(/contiguous/);
+  });
+});
+
+describe("Asia/Shanghai defaults (UTC+8)", () => {
+  it("chinaToday rolls over at 16:00 UTC", () => {
+    expect(chinaToday(Date.UTC(2026, 8, 30, 15, 59, 59))).toBe("2026-09-30");
+    expect(chinaToday(Date.UTC(2026, 8, 30, 16, 0, 0))).toBe("2026-10-01");
+  });
+
+  it("chinaThisMonth covers the China month, across month, year and leap-day boundaries", () => {
+    expect(chinaThisMonth(Date.UTC(2026, 0, 31, 15, 59))).toEqual({ from: "2026-01-01", to: "2026-01-31" });
+    expect(chinaThisMonth(Date.UTC(2026, 0, 31, 16, 0))).toEqual({ from: "2026-02-01", to: "2026-02-28" });
+    expect(chinaThisMonth(Date.UTC(2026, 11, 31, 16, 0))).toEqual({ from: "2027-01-01", to: "2027-01-31" });
+    expect(chinaThisMonth(Date.UTC(2028, 1, 10))).toEqual({ from: "2028-02-01", to: "2028-02-29" });
   });
 });

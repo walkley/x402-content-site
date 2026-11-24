@@ -12,8 +12,8 @@ The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs 
 
 | Route | Price | Returns |
 |---|---|---|
-| `GET /cn/workday?date=YYYY-MM-DD` | $0.003 | `is_workday`, `is_public_holiday`, `is_makeup_workday`, `holiday_name`, `kind`, `weekday`, `source_url`, `data_updated` |
-| `GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD` | $0.005 | `calendar_days`, `workday_count`, `workdays[]` (inclusive range, at most 366 days, may cross years) |
+| `GET /cn/workday?date=YYYY-MM-DD` | $0.003 | `is_workday`, `is_public_holiday`, `is_makeup_workday`, `holiday_name`, `kind`, `weekday`, `source_url`, `data_updated`; `date` is optional (default: today in Asia/Shanghai) |
+| `GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD` | $0.005 | `calendar_days`, `workday_count`, `workdays[]` (inclusive range, at most 366 days, may cross years); `from`/`to` are optional together (default: the current month in Asia/Shanghai) |
 | `GET /deps/advisories?ecosystem=npm\|PyPI\|Go\|crates.io\|Maven&name=…&version=…` | $0.005 | `vulnerable`, `advisory_count`, `advisories[]` (`id`, `aliases`, `summary`, `severity.level`, `severity.cvss[]`, `affected[].ranges`, `fixed_versions`, `published`, `modified`, `references`, `url`, `license`), `data_fetched_at`, `queried_at` |
 | `POST /deps/advisories/batch` with `{"packages":[{ecosystem,name,version}, …]}` (1–50) | $0.02 | `count`, `vulnerable_count`, `results[]` in request order, each shaped like the single query |
 | `GET /sec/insider-trades?ticker=AAPL` (or `cik=320193`) | $0.003 | `issuer`, `filings_checked`, `transactions[]` from the 4 most recent Form 4 / 4/A filings (`reporting_owners[]` with role and officer title, `transaction_date`, `code`, `code_description`, `acquired_disposed`, `shares`, `price_per_share`, `shares_owned_after`, `ownership`, `rule_10b5_1`, `filing_url`), `data_fetched_at`, `source` |

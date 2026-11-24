@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FacilitatorClient } from "@x402/core/server";
 import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePaymentSignatureHeader } from "@x402/core/http";
@@ -128,11 +128,14 @@ describe("402 without payment", () => {
 describe("invalid input is rejected before payment (not charged)", () => {
   it.each([
     ["/cn/workday?date=", 400, "invalid_date"],
-    ["/cn/workday?day=2026-02-14", 400, "invalid_date"],
+    ["/cn/workday?from=2026-02-14", 400, "invalid_params"],
+    ["/cn/workday?date=2026-02-14&to=2026-02-20", 400, "invalid_params"],
     ["/cn/workday?date=2026-02-30", 400, "invalid_date"],
     ["/cn/workday?date=2030-01-01", 404, "year_not_covered"],
     ["/cn/business-days?from=2026-01-01&to=2027-01-02", 400, "range_too_large"],
     ["/cn/business-days?from=2026-02-02&to=2026-02-01", 400, "invalid_range"],
+    ["/cn/business-days?from=2026-01-05", 400, "invalid_date"],
+    ["/cn/business-days?to=2026-01-16", 400, "invalid_date"],
   ])("%s -> %i", async (path, status, code) => {
     const { app, events } = setup({ verify: true, settle: true });
     const res = await app.request(path, { headers: UA });
@@ -291,13 +294,67 @@ describe("bare probes (no input at all) get a 402 quote, not a 400", () => {
   });
 
   it("a bare request that carries a payment is validated and rejected free, never verified or settled", async () => {
-    for (const [path, method] of [["/cn/workday", "GET"], ["/deps/advisories/batch", "POST"]] as const) {
+    // /cn/workday and /cn/business-days default instead (see the Asia/Shanghai defaults below)
+    for (const [path, method] of [["/deps/advisories", "GET"], ["/deps/advisories/batch", "POST"]] as const) {
       const { app, facilitator } = setup({ verify: true, settle: true });
       const res = await app.request(path, { method, headers: { ...UA, "payment-signature": "e30=" } });
       expect(res.status).toBe(400);
       expect(res.headers.get("payment-required")).toBeNull();
       expect(facilitator.verifyCalls + facilitator.settleCalls).toBe(0);
     }
+  });
+});
+
+describe("paid /cn requests with no parameters use Asia/Shanghai defaults", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    return () => vi.useRealTimers();
+  });
+
+  // 2026-09-30 16:30 UTC is 2026-10-01 00:30 in China: the UTC day is a September workday, the China day is 国庆节.
+  it("/cn/workday answers today in China and settles", async () => {
+    vi.setSystemTime(Date.UTC(2026, 8, 30, 16, 30));
+    const { app, facilitator } = setup({ verify: true, settle: true });
+    const res = await paidRequest(app, "/cn/workday");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ date: "2026-10-01", is_workday: false, holiday_name: "国庆节" });
+    expect(facilitator.settleCalls).toBe(1);
+  });
+
+  it("/cn/business-days answers the current China month and settles", async () => {
+    vi.setSystemTime(Date.UTC(2026, 8, 30, 16, 30));
+    const { app, facilitator } = setup({ verify: true, settle: true });
+    const res = await paidRequest(app, "/cn/business-days");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ from: "2026-10-01", to: "2026-10-31", calendar_days: 31 });
+    expect(facilitator.settleCalls).toBe(1);
+  });
+
+  it("a default in an uncovered year (2028) is a free 404 before verify and settle", async () => {
+    vi.setSystemTime(Date.UTC(2027, 11, 31, 16, 0, 0)); // 2028-01-01 00:00 in China
+    for (const path of ["/cn/workday", "/cn/business-days"]) {
+      const { app, facilitator } = setup({ verify: true, settle: true });
+      expect((await app.request(path, { headers: UA })).status).toBe(402); // the bare quote is unchanged
+      const res = await paidRequest(app, path);
+      expect(res.status, path).toBe(404);
+      expect(await res.json()).toMatchObject({ error: "year_not_covered" });
+      expect(res.headers.get("payment-required")).toBeNull();
+      expect(facilitator.verifyCalls + facilitator.settleCalls, path).toBe(0);
+    }
+  });
+
+  it("the default is taken once: midnight during verify does not change the answered day", async () => {
+    vi.setSystemTime(Date.UTC(2027, 11, 31, 15, 59, 59)); // 2027-12-31 23:59:59 in China
+    const { app, facilitator } = setup({ verify: true, settle: true });
+    const verify = facilitator.verify.bind(facilitator);
+    facilitator.verify = async (p, r) => {
+      vi.setSystemTime(Date.UTC(2027, 11, 31, 16, 0, 1)); // 2028 in China, outside the data
+      return verify(p, r);
+    };
+    const res = await paidRequest(app, "/cn/workday");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ date: "2027-12-31" });
+    expect(facilitator.settleCalls).toBe(1);
   });
 });
 
