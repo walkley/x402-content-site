@@ -9,8 +9,8 @@ import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
-import { InputError, chinaThisMonth, chinaToday } from "./calendar.js";
-import { OsvClient, UpstreamError, parseBatch, parsePackageQuery } from "./advisories.js";
+import { InputError, MAX_RANGE_DAYS, chinaThisMonth, chinaToday } from "./calendar.js";
+import { ECOSYSTEMS, MAX_BATCH, OsvClient, UpstreamError, parseBatch, parsePackageQuery } from "./advisories.js";
 import {
   ADVISORIES_DESCRIPTION,
   ADVISORIES_EXAMPLE_INPUT,
@@ -40,7 +40,7 @@ import {
   SEC_TAGS,
 } from "./content-sec.js";
 import { calendar } from "./data.js";
-import { SecClient, parseCompanyQuery, parseFilingsQuery, secUserAgent } from "./sec.js";
+import { MAX_FILINGS_LIMIT, SecClient, parseCompanyQuery, parseFilingsQuery, secUserAgent } from "./sec.js";
 import { FunnelLogger, type FunnelEvent } from "./funnel.js";
 import { MCP_SRC, PAID_MCP_PATH, ipHashOf, mcpHandler, mcpManifest, mcpRequestLog } from "./mcp.js";
 import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
@@ -235,20 +235,68 @@ function businessDaysRange(c: Context): { from: unknown; to: unknown } {
   return from === undefined && to === undefined ? cnDefault(c, () => chinaThisMonth()) : { from, to };
 }
 
-/** Paid routes and their free pre-payment input validation. */
-const PAID_ROUTES: Record<string, { method: "GET" | "POST"; validate: (c: Context) => unknown }> = {
-  "/cn/workday": { method: "GET", validate: (c) => calendar.lookup(workdayDate(c)) },
+/** A valid request for a paid route, returned with every free pre-payment 400/404 so a caller can copy it as is. */
+interface RouteExample {
+  query?: string;
+  body?: unknown;
+  allowed: Record<string, unknown>;
+}
+
+const CN_DATE = () => `YYYY-MM-DD, ${calendar.firstDate}..${calendar.lastDate}`;
+const SEC_COMPANY = "ticker (e.g. AAPL, BRK-B) or cik (1-10 digits, e.g. 320193), not both";
+
+/** Paid routes, their free pre-payment input validation, and the example shown when that validation fails. */
+const PAID_ROUTES: Record<string, { method: "GET" | "POST"; validate: (c: Context) => unknown; example: () => RouteExample }> = {
+  "/cn/workday": {
+    method: "GET",
+    validate: (c) => calendar.lookup(workdayDate(c)),
+    example: () => ({ query: "date=2026-10-08", allowed: { date: CN_DATE() } }),
+  },
   "/cn/business-days": {
     method: "GET",
     validate: (c) => {
       const { from, to } = businessDaysRange(c);
       return calendar.validateRange(from, to);
     },
+    example: () => ({
+      query: "from=2026-10-01&to=2026-10-31",
+      allowed: { from: CN_DATE(), to: `${CN_DATE()}, on or after from, at most ${MAX_RANGE_DAYS} days inclusive` },
+    }),
   },
-  "/deps/advisories": { method: "GET", validate: advisoryQuery },
-  "/deps/advisories/batch": { method: "POST", validate: batchQuery },
-  "/sec/insider-trades": { method: "GET", validate: insiderQuery },
-  "/sec/latest-filings": { method: "GET", validate: filingsQuery },
+  "/deps/advisories": {
+    method: "GET",
+    validate: advisoryQuery,
+    example: () => ({
+      query: "ecosystem=npm&name=lodash&version=4.17.20",
+      allowed: { ecosystem: [...ECOSYSTEMS], name: "package name; Maven uses groupId:artifactId", version: "exact version" },
+    }),
+  },
+  "/deps/advisories/batch": {
+    method: "POST",
+    validate: batchQuery,
+    example: () => ({
+      body: {
+        packages: [
+          { ecosystem: "npm", name: "lodash", version: "4.17.20" },
+          { ecosystem: "PyPI", name: "django", version: "3.2.0" },
+        ],
+      },
+      allowed: { ecosystem: [...ECOSYSTEMS], packages: `1-${MAX_BATCH} items of {ecosystem, name, version}` },
+    }),
+  },
+  "/sec/insider-trades": {
+    method: "GET",
+    validate: insiderQuery,
+    example: () => ({ query: "ticker=AAPL", allowed: { company: SEC_COMPANY } }),
+  },
+  "/sec/latest-filings": {
+    method: "GET",
+    validate: filingsQuery,
+    example: () => ({
+      query: "ticker=AAPL&form=8-K&limit=5",
+      allowed: { company: SEC_COMPANY, form: "optional EDGAR form type, e.g. 8-K, 10-Q, 10-K, 4", limit: `optional, 1-${MAX_FILINGS_LIMIT}` },
+    }),
+  },
 };
 
 interface RequestMeta {
@@ -287,8 +335,16 @@ async function quoteInBody(c: Context) {
   c.res = new Response(JSON.stringify({ x402Version, accepts, resource, ...rest }), { status: 402, headers });
 }
 
-function inputErrorResponse(c: Context, e: InputError) {
-  return c.json({ error: e.code, message: e.message }, e.status);
+function inputErrorResponse(c: Context, e: InputError, base: string) {
+  const route = PAID_ROUTES[c.req.path];
+  const { query, body, allowed } = route.example();
+  const example = {
+    method: route.method,
+    url: `${base}${c.req.path}${query ? `?${query}` : ""}`,
+    ...(body !== undefined ? { content_type: "application/json", body } : {}),
+    allowed,
+  };
+  return c.json({ error: e.code, message: e.message, example }, e.status);
 }
 
 /**
@@ -552,7 +608,7 @@ export function createApp(cfg: AppConfig) {
     } catch (e) {
       if (!(e instanceof InputError)) throw e;
       log({ stage: "request", ...meta, ...tags, status: e.status, reason: `rejected_input: ${e.code}` });
-      return inputErrorResponse(c, e);
+      return inputErrorResponse(c, e, baseUrl(c));
     }
     log({ stage: "request", ...meta, ...tags });
     if (paymentHeader) {
