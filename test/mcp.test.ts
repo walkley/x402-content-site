@@ -192,15 +192,22 @@ describe("MCP protocol", () => {
   });
 
   // Directory probers (nohumans.directory) build an unpaid call from the schema's examples; it must pass validation.
-  it.each(["/mcp", "/paid/mcp"])("%s: every parameter has examples, and calls built from them pass validation", async (path) => {
+  it.each(["/mcp", "/paid/mcp"])("%s: required parameters have examples, and calls built from any examples pass validation", async (path) => {
     type Schema = { properties: Record<string, { examples?: unknown[] }>; required?: string[]; examples?: Record<string, unknown>[] };
     const { rpc, call } = setup({ path });
     const tools = (await rpc("tools/list")).body.result.tools as { name: string; inputSchema: Schema }[];
     expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories"]);
     for (const { name, inputSchema: s } of tools) {
-      for (const [p, prop] of Object.entries(s.properties)) expect(prop.examples?.length, `${name}.${p}`).toBeGreaterThan(0);
+      for (const p of s.required ?? []) expect(s.properties[p].examples?.length, `${name}.${p}`).toBeGreaterThan(0);
+      const withExamples = Object.entries(s.properties).filter(([, prop]) => prop.examples?.length);
       const fromRequired = Object.fromEntries((s.required ?? []).map((p) => [p, s.properties[p].examples![0]]));
-      const argSets = [...(s.required?.length ? [fromRequired] : []), ...(s.examples ?? [])];
+      const argSets = [
+        // every property's first example merged, as a prober might build it
+        Object.fromEntries(withExamples.map(([p, prop]) => [p, prop.examples![0]])),
+        // each single example of every property (optional ones too), on top of the required ones
+        ...withExamples.flatMap(([p, prop]) => prop.examples!.map((ex) => ({ ...fromRequired, [p]: ex }))),
+        ...(s.examples ?? []),
+      ].filter((a) => Object.keys(a).length > 0);
       expect(argSets.length, name).toBeGreaterThan(0);
       for (const args of argSets) {
         const r = (await call(name, args)).result;
