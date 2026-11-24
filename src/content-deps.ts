@@ -12,7 +12,7 @@ export const ADVISORIES_DESCRIPTION =
   "Is this package version safe to install? Dependency check for install safety before npm install, pip install or cargo add, for one exact npm, PyPI, Go, crates.io or Maven version. " +
   "Returns vulnerable true/false and the OSV.dev advisories for that version (CVE, GHSA, PYSEC, GO and RUSTSEC vulnerabilities and OpenSSF malicious-package MAL- entries) " +
   "with CVSS, affected ranges, fixed versions and links. " +
-  "Package names are case-sensitive (for npm use the published lowercase name). Data fetched live from OSV.dev (cached up to 1 hour).";
+  "Package names are case-sensitive. Data fetched live from OSV.dev (cached up to 1 hour).";
 // shortcut: the per-package price is written out for search snippets; test/app.test.ts checks it against BATCH_PRICE / MAX_BATCH.
 export const BATCH_DESCRIPTION =
   `Are these package versions safe to install? Batch dependency check of up to ${MAX_BATCH} npm, PyPI, Go, crates.io or Maven package versions in one call, ` +

@@ -317,7 +317,14 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
       const op = oa.paths[path][method];
       expect(op["x-payment-info"]).toEqual({ price: { mode: "fixed", currency: "USD", amount }, protocols: [{ x402: {} }] });
       expect(op.responses["402"]).toBeTruthy();
+      // Short summaries and snake_case operationIds: routers such as agent402 score them as names; x402scan cuts text at 500.
+      expect(op.operationId).toMatch(/^[a-z]+(_[a-z0-9]+)*$/);
+      expect(op.summary.split(" ").length).toBeLessThanOrEqual(10);
+      expect(op.description.length).toBeLessThanOrEqual(500);
     }
+    const ids = Object.keys(paid).map((path) => oa.paths[path][paid[path as keyof typeof paid][0]].operationId);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const d of [ADVISORIES_DESCRIPTION, BATCH_DESCRIPTION, INSIDER_TRADES_DESCRIPTION]) expect(d.length).toBeLessThanOrEqual(500);
     expect(oa.paths["/health"].get["x-payment-info"]).toBeUndefined();
     expect(oa["x-discovery"]).toEqual({ llmsTxtUrl: "http://localhost/llms.txt" });
     expect(oa.paths["/health"].get.security).toEqual([]);
