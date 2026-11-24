@@ -49,6 +49,8 @@ export const MAINNET_NETWORK = "eip155:8453";
 export const DEFAULT_THROTTLE = { rateLimit: 10, burstLimit: 20 };
 /** The free MCP endpoint's own route and throttle, so /mcp traffic does not use the paid routes' 10 rps. */
 export const MCP_ROUTE_KEY = "POST /mcp";
+/** The paid MCP endpoint (payment links only, no free quota): its own route with the same throttle as /mcp. */
+export const PAID_MCP_ROUTE_KEY = "POST /paid/mcp";
 export const MCP_THROTTLE = { rateLimit: 2, burstLimit: 5 };
 
 /** HTTP API access log line ($context variables; the query string is not logged). */
@@ -178,12 +180,14 @@ export class ApiStack extends Stack {
       defaultIntegration: new HttpLambdaIntegration("Lambda", fn),
       createDefaultStage: false, // created below with throttling, which HttpApi's own default stage cannot set
     });
-    // POST /mcp gets its own route, pointed at the same integration, so that it can have its own throttle. An L1 route:
-    // binding the L2 integration to a second route would add a second invoke permission, and the existing one already
-    // covers every route of this API (SourceArn api-id/*/*). OPTIONS/GET/DELETE /mcp stay on $default.
+    // POST /mcp and POST /paid/mcp each get their own route, pointed at the same integration, so that each can have its
+    // own throttle. L1 routes: binding the L2 integration to another route would add another invoke permission, and the
+    // existing one already covers every route of this API (SourceArn api-id/*/*). OPTIONS/GET/DELETE stay on $default.
     const integration = api.node.findAll().find((c): c is CfnIntegration => c instanceof CfnIntegration);
     if (!integration) throw new Error("HttpApi default integration not found");
-    const mcpRoute = new CfnRoute(this, "McpRoute", { apiId: api.apiId, routeKey: MCP_ROUTE_KEY, target: `integrations/${integration.ref}` });
+    const target = `integrations/${integration.ref}`;
+    const mcpRoute = new CfnRoute(this, "McpRoute", { apiId: api.apiId, routeKey: MCP_ROUTE_KEY, target });
+    const paidMcpRoute = new CfnRoute(this, "PaidMcpRoute", { apiId: api.apiId, routeKey: PAID_MCP_ROUTE_KEY, target });
     const stage = new HttpStage(this, "DefaultStage", {
       httpApi: api,
       stageName: "$default",
@@ -197,10 +201,9 @@ export class ApiStack extends Stack {
       },
     });
     // Route-level settings replace the default throttle for that route only (HttpStage has no L2 prop for them).
-    (stage.node.defaultChild as CfnStage).routeSettings = {
-      [MCP_ROUTE_KEY]: { ThrottlingRateLimit: MCP_THROTTLE.rateLimit, ThrottlingBurstLimit: MCP_THROTTLE.burstLimit },
-    };
-    stage.node.addDependency(mcpRoute); // the stage's route settings name the route, so it must exist first
+    const mcpThrottle = { ThrottlingRateLimit: MCP_THROTTLE.rateLimit, ThrottlingBurstLimit: MCP_THROTTLE.burstLimit };
+    (stage.node.defaultChild as CfnStage).routeSettings = { [MCP_ROUTE_KEY]: mcpThrottle, [PAID_MCP_ROUTE_KEY]: mcpThrottle };
+    stage.node.addDependency(mcpRoute, paidMcpRoute); // the stage's route settings name the routes, so they must exist first
 
     // The app uses its public base URL in /openapi.json, /llms.txt, the 402 body and iconUrl.
     if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", api.apiEndpoint);

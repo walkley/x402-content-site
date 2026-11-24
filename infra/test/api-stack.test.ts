@@ -48,21 +48,25 @@ describe("ApiStack", () => {
     template.resourceCountIs("AWS::ApiGateway::Account", 0);
   });
 
-  it("gives POST /mcp its own route on the same integration, throttled at 2 rps / burst 5, paid routes unchanged", () => {
-    template.resourceCountIs("AWS::ApiGatewayV2::Route", 2);
+  it("gives POST /mcp and POST /paid/mcp their own routes on the same integration, each throttled at 2 rps / burst 5, paid routes unchanged", () => {
+    template.resourceCountIs("AWS::ApiGatewayV2::Route", 3);
     template.resourceCountIs("AWS::ApiGatewayV2::Integration", 1);
     const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route"));
     const byKey = new Map(routes.map((r) => [r.Properties.RouteKey as string, r.Properties]));
-    expect([...byKey.keys()].sort()).toEqual(["$default", "POST /mcp"]);
+    expect([...byKey.keys()].sort()).toEqual(["$default", "POST /mcp", "POST /paid/mcp"]);
     const integrationId = logicalId("AWS::ApiGatewayV2::Integration", "HttpApi");
     for (const r of byKey.values()) {
       expect(JSON.stringify(r.Target)).toContain(integrationId);
       expect(r.AuthorizationType ?? "NONE").toBe("NONE");
     }
     const [stageId, stage] = Object.entries(template.findResources("AWS::ApiGatewayV2::Stage"))[0];
-    expect(stage.Properties.RouteSettings).toEqual({ "POST /mcp": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 } });
+    expect(stage.Properties.RouteSettings).toEqual({
+      "POST /mcp": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+      "POST /paid/mcp": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+    });
     expect(stage.Properties.DefaultRouteSettings).toEqual({ ThrottlingRateLimit: 10, ThrottlingBurstLimit: 20 });
     expect(stage.DependsOn).toContain(logicalId("AWS::ApiGatewayV2::Route", "McpRoute"));
+    expect(stage.DependsOn).toContain(logicalId("AWS::ApiGatewayV2::Route", "PaidMcpRoute"));
     expect(stageId).toMatch(/^DefaultStage/);
     // /mcp at its throttle cannot reach the breaker threshold alone in 24 hours (README "Cost breaker")
     expect(2 * 86_400).toBeLessThan(BASE.breakerDailyInvocations);
