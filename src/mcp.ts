@@ -57,6 +57,9 @@ export interface McpDeps {
 
 const DATE = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
 
+/** Today's date (YYYY-MM-DD) in mainland China. Asia/Shanghai is a fixed UTC+8 with no daylight saving time. */
+export const chinaToday = (now = Date.now()) => new Date(now + 8 * 3_600_000).toISOString().slice(0, 10);
+
 export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
   {
     name: "cn_workday_check",
@@ -64,12 +67,13 @@ export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
     description:
       "Is a date a working day in mainland China? Applies State Council (国务院) holiday notices: public holidays, weekend makeup " +
       `workdays (调休补班) and ordinary weekends; returns the holiday name and the gov.cn source link. Pass date for one day, or ` +
-      `from and to (inclusive, up to ${MAX_RANGE_DAYS} days) to count and list working days. Coverage ${calendar.firstDate}..${calendar.lastDate}. ` +
+      `from and to (inclusive, up to ${MAX_RANGE_DAYS} days) to count and list working days; with no arguments it checks today ` +
+      `(Asia/Shanghai). Coverage ${calendar.firstDate}..${calendar.lastDate}. ` +
       (d.paidOnly ? "Pay-per-call over x402: the tool answers with a payment link to the paid URL." : `Free for ${d.perIpDaily} calls per day, then pay-per-call over x402.`),
     inputSchema: {
       type: "object",
       properties: {
-        date: { ...DATE, description: "One date (YYYY-MM-DD). Do not combine with from/to.", examples: ["2026-10-08"] },
+        date: { ...DATE, description: "One date (YYYY-MM-DD). Do not combine with from/to. Default: today in Asia/Shanghai, when date, from and to are all omitted.", examples: ["2026-10-08"] },
         // No per-property examples on from/to: a prober that merges every property's examples would send
         // {date, from, to}, which the tool refuses. The object-level examples below show the range form.
         from: { ...DATE, description: "Range start, inclusive (YYYY-MM-DD)" },
@@ -200,7 +204,7 @@ export function mcpHandler(d: McpDeps) {
 
   async function callTool(c: Context, params: Json): Promise<{ error: [number, string] } | { result: unknown }> {
     const name = params.name;
-    const args = (params.arguments ?? {}) as Json;
+    let args = (params.arguments ?? {}) as Json;
     const f = fieldsOf(c);
     f.tool = clip(name, CLIENT_FIELD_MAX);
     if (name !== "cn_workday_check" && name !== "package_advisories") {
@@ -210,6 +214,10 @@ export function mcpHandler(d: McpDeps) {
     if (typeof args !== "object" || args === null || Array.isArray(args)) {
       Object.assign(f, { outcome: "invalid_request", reason: "arguments_not_object" });
       return { error: [-32602, "arguments must be an object"] };
+    }
+    // No arguments at all means today in China (directory probers send {} when no property is required).
+    if (name === "cn_workday_check" && args.date === undefined && args.from === undefined && args.to === undefined) {
+      args = { ...args, date: chinaToday() };
     }
     let run: () => Promise<unknown>;
     try {
