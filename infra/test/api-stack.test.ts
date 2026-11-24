@@ -46,6 +46,16 @@ describe("ApiStack", () => {
     template.resourceCountIs("AWS::ApiGateway::Account", 0);
   });
 
+  it("writes a JSON access log line per request to a 30-day log group", () => {
+    const stages = Object.values(template.findResources("AWS::ApiGatewayV2::Stage"));
+    const settings = stages[0].Properties.AccessLogSettings;
+    const fields = JSON.parse(settings.Format);
+    for (const k of ["requestId", "status", "routeKey", "integrationErrorMessage"]) expect(fields[k]).toMatch(/^\$context\./);
+    const groupId = logicalId("AWS::Logs::LogGroup", "AccessLogs");
+    expect(settings.DestinationArn).toEqual({ "Fn::GetAtt": [groupId, "Arn"] });
+    template.hasResourceProperties("AWS::Logs::LogGroup", { RetentionInDays: 30 });
+  });
+
   it("lets only API Gateway invoke the API function, scoped to this HTTP API", () => {
     const [apiId] = Object.keys(template.findResources("AWS::ApiGatewayV2::Api"));
     const perms = Object.values(template.findResources("AWS::Lambda::Permission")).filter(

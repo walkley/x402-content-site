@@ -1,8 +1,9 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
-import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
+import { RouteConfigurationError, paymentMiddlewareFromHTTPServer, x402HTTPResourceServer, x402ResourceServer } from "@x402/hono";
 import { HTTPFacilitatorClient, type FacilitatorClient, type RoutesConfig } from "@x402/core/server";
 import type { Network } from "@x402/core/types";
-import { decodePaymentRequiredHeader, type FacilitatorConfig } from "@x402/core/http";
+import { FacilitatorTimeoutError, decodePaymentRequiredHeader, type FacilitatorConfig } from "@x402/core/http";
 import type { HTTPRequestContext } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
@@ -75,7 +76,25 @@ export interface AppConfig {
   funnel?: FunnelLogger;
   /** OSV.dev client (tests inject one with a fake fetch). */
   osv?: OsvClient;
+  /** Per-attempt limit on the facilitator /supported sync. Default FACILITATOR_INIT_TIMEOUT_MS. */
+  facilitatorInitTimeoutMs?: number;
+  /** Time from request start by which verify/settle must have answered. Default REQUEST_DEADLINE_MS. */
+  requestDeadlineMs?: number;
 }
+
+/**
+ * The library's own /supported request has a 90 s timeout. Lambda init waits at most this for one attempt; a paid
+ * request that still finds the facilitator unsynced shares this same total across its two attempts (half each), so
+ * the sync never takes more than this out of the request's 25 s.
+ */
+export const FACILITATOR_INIT_TIMEOUT_MS = 5_000;
+/**
+ * Lambda's timeout is 25 s. Facilitator verify/settle calls stop waiting at request start + this, leaving 2 s to
+ * build and send the response, so a slow facilitator ends in a logged settle_fail instead of a killed invocation.
+ * shortcut: measured from request start inside the app, not from Lambda's getRemainingTimeInMillis; upgrade if the
+ * function timeout changes. A settle cut off here may still land on chain (same as a Lambda timeout would).
+ */
+export const REQUEST_DEADLINE_MS = 23_000;
 
 type Env = Record<string, string | undefined>;
 
@@ -193,7 +212,21 @@ export function createApp(cfg: AppConfig) {
     return header ? inflight.get(header) : undefined;
   };
 
-  const facilitator = cfg.facilitator ?? new HTTPFacilitatorClient(cfg.facilitatorConfig ?? { url: cfg.facilitatorUrl });
+  // Every verify/settle answers by the request's deadline (set by the first middleware below). The client's own
+  // timeoutMs also aborts the underlying fetch instead of the library's 90 s default.
+  const requestDeadlineMs = cfg.requestDeadlineMs ?? REQUEST_DEADLINE_MS;
+  const deadline = new AsyncLocalStorage<number>();
+  const byDeadline = <T>(op: string, p: Promise<T>): Promise<T> => {
+    const end = deadline.getStore();
+    return end === undefined ? p : withTimeout(p, Math.max(end - Date.now(), 0), () => new FacilitatorTimeoutError(op, requestDeadlineMs));
+  };
+  const client =
+    cfg.facilitator ?? new HTTPFacilitatorClient({ ...(cfg.facilitatorConfig ?? { url: cfg.facilitatorUrl }), timeoutMs: requestDeadlineMs });
+  const facilitator: FacilitatorClient = {
+    getSupported: () => client.getSupported(),
+    verify: (p, r) => byDeadline("verify", client.verify(p, r)),
+    settle: (p, r) => byDeadline("settle", client.settle(p, r)),
+  };
   const server = new x402ResourceServer(facilitator)
     .register(cfg.network, new ExactEvmScheme())
     .onAfterVerify(async (ctx) => {
@@ -320,6 +353,50 @@ export function createApp(cfg: AppConfig) {
     },
   };
 
+  // The library's default (syncFacilitatorOnStart) starts GET /supported at module load and never waits for it. When
+  // the instance's first request is free, Lambda freezes the instance with that request in flight; its 90 s abort
+  // timer then fires on wake and the next paid request got a 502. We sync ourselves instead: during Lambda init
+  // (lambda.ts awaits initFacilitator), and again before a paid request if that did not succeed.
+  const httpServer = new x402HTTPResourceServer(server, routes);
+  const initTimeoutMs = cfg.facilitatorInitTimeoutMs ?? FACILITATOR_INIT_TIMEOUT_MS;
+  let synced = false;
+  /** Set when the facilitator answered but our routes do not fit it: a bug or a config error, retrying cannot help. */
+  let configError: Error | undefined;
+  let syncing: Promise<boolean> | undefined;
+  /** One attempt, at most timeoutMs; never throws. Concurrent callers share the attempt. */
+  const initFacilitator = (timeoutMs = initTimeoutMs): Promise<boolean> =>
+    (syncing ??= (async () => {
+      try {
+        await withTimeout(httpServer.initialize(), timeoutMs);
+        synced = true;
+      } catch (e) {
+        if (e instanceof RouteConfigurationError) configError = e;
+        const err = e as Error;
+        const cause = err.cause instanceof Error ? err.cause.message : undefined;
+        console.warn(JSON.stringify({ ts: new Date().toISOString(), type: "facilitator_sync_failed", message: err.message, cause }));
+      } finally {
+        syncing = undefined;
+      }
+      return synced;
+    })());
+  // Before the payment middleware: a failed sync is retried once in this request, the two attempts sharing
+  // initTimeoutMs; only a second failure is an error, a 503 with nothing charged (no payment is verified or settled
+  // without a synced facilitator). A route configuration error is not retried: it is a 500 until redeployed.
+  const facilitatorGate: MiddlewareHandler = async (c, next) => {
+    const attempt = () => !configError && initFacilitator(initTimeoutMs / 2);
+    if (synced || (await attempt()) || (await attempt())) return next();
+    if (configError) {
+      c.set("failure", "route_configuration_error");
+      return c.json({ error: "internal_error" }, 500);
+    }
+    c.set("failure", "facilitator_unavailable");
+    c.header("Retry-After", "5");
+    return c.json(
+      { error: "facilitator_unavailable", message: "The payment facilitator did not answer. You were not charged; retry shortly." },
+      503,
+    );
+  };
+
   // Runs before the payment middleware: funnel bookkeeping, and input validation so a bad
   // request gets a free 400/404 instead of a 402 the agent would pay for and then fail.
   // A bare request without a payment is quoted (402) unvalidated; with a payment it is validated, so it is never charged.
@@ -414,9 +491,11 @@ export function createApp(cfg: AppConfig) {
 
   // Batch bodies are at most 50 small objects; refuse anything larger before parsing.
   app.use("/deps/advisories/batch", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
-  const payment = paymentMiddleware(routes, server);
+  const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
   for (const prefix of ["/cn/*", "/deps/*"]) {
+    app.use(prefix, (_c, next) => deadline.run(Date.now() + requestDeadlineMs, next));
     app.use(prefix, funnelAndValidate);
+    app.use(prefix, facilitatorGate);
     app.use(prefix, payment);
   }
 
@@ -447,5 +526,18 @@ export function createApp(cfg: AppConfig) {
     }
   });
 
-  return app;
+  return Object.assign(app, { initFacilitator });
+}
+
+/** Rejects after ms; the abandoned promise keeps running and its result is ignored. */
+function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  error = () => new Error(`facilitator /supported sync timed out after ${ms} ms`),
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(error()), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
