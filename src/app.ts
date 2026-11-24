@@ -3,6 +3,7 @@ import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
 import { HTTPFacilitatorClient, type FacilitatorClient, type RoutesConfig } from "@x402/core/server";
 import type { Network } from "@x402/core/types";
 import { decodePaymentRequiredHeader, type FacilitatorConfig } from "@x402/core/http";
+import type { HTTPRequestContext } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { bodyLimit } from "hono/body-limit";
@@ -39,6 +40,7 @@ import {
   BUSINESS_DAYS_EXAMPLE_OUTPUT,
   BUSINESS_DAYS_INPUT_SCHEMA,
   BUSINESS_DAYS_OUTPUT_SCHEMA,
+  FAVICON_ICO,
   SERVICE_NAME,
   TAGS,
   WORKDAY_DESCRIPTION,
@@ -114,6 +116,16 @@ async function batchQuery(c: Context) {
   return parseBatch(body);
 }
 
+/**
+ * A request with no input at all (no query string, or an empty body on POST). Discovery tools probe paid routes this
+ * way and expect a 402, so such a request is quoted instead of rejected. Input that is present but invalid still gets
+ * a free 400.
+ */
+async function isBareRequest(c: Context, method: "GET" | "POST") {
+  if (method === "GET") return new URL(c.req.url).search.length <= 1;
+  return (await c.req.text()).trim() === ""; // Hono caches the text; batchQuery's c.req.json() reuses it.
+}
+
 /** Paid routes and their free pre-payment input validation. */
 const PAID_ROUTES: Record<string, { method: "GET" | "POST"; validate: (c: Context) => unknown }> = {
   "/cn/workday": { method: "GET", validate: (c) => calendar.lookup(c.req.query("date")) },
@@ -186,9 +198,32 @@ export function createApp(cfg: AppConfig) {
     });
 
   const accepts = (price: string) => ({ scheme: "exact", price, network: cfg.network, payTo: cfg.payTo });
+  const originOf = (ctx: HTTPRequestContext) => cfg.publicBaseUrl ?? new URL(ctx.adapter.getUrl()).origin;
+  /** iconUrl, and a 402 body that a plain-fetch agent (which never decodes PAYMENT-REQUIRED) can act on. */
+  const listing = (price: string, request: { method: "GET" | "POST"; path: string; body?: unknown }, response: unknown) => ({
+    ...(cfg.publicBaseUrl ? { iconUrl: `${cfg.publicBaseUrl}/favicon.ico` } : {}),
+    unpaidResponseBody: (ctx: HTTPRequestContext) => {
+      const base = originOf(ctx);
+      return {
+        contentType: "application/json",
+        body: {
+          error: "Payment required",
+          price,
+          currency: "USDC",
+          network: cfg.network,
+          how_to_pay:
+            "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+          docs: `${base}/openapi.json`,
+          llms_txt: `${base}/llms.txt`,
+          example: { request: { method: request.method, url: `${base}${request.path}`, ...(request.body ? { body: request.body } : {}) }, response },
+        },
+      };
+    },
+  });
   const routes: RoutesConfig = {
     "GET /cn/workday": {
       accepts: accepts(WORKDAY_PRICE),
+      ...listing(WORKDAY_PRICE, { method: "GET", path: `/cn/workday?${new URLSearchParams(WORKDAY_EXAMPLE_INPUT)}` }, WORKDAY_EXAMPLE_OUTPUT),
       description: WORKDAY_DESCRIPTION,
       mimeType: "application/json",
       serviceName: SERVICE_NAME,
@@ -201,6 +236,11 @@ export function createApp(cfg: AppConfig) {
     },
     "GET /cn/business-days": {
       accepts: accepts(BUSINESS_DAYS_PRICE),
+      ...listing(
+        BUSINESS_DAYS_PRICE,
+        { method: "GET", path: `/cn/business-days?${new URLSearchParams(BUSINESS_DAYS_EXAMPLE_INPUT)}` },
+        BUSINESS_DAYS_EXAMPLE_OUTPUT,
+      ),
       description: BUSINESS_DAYS_DESCRIPTION,
       mimeType: "application/json",
       serviceName: SERVICE_NAME,
@@ -213,6 +253,11 @@ export function createApp(cfg: AppConfig) {
     },
     "GET /deps/advisories": {
       accepts: accepts(ADVISORIES_PRICE),
+      ...listing(
+        ADVISORIES_PRICE,
+        { method: "GET", path: `/deps/advisories?${new URLSearchParams(ADVISORIES_EXAMPLE_INPUT)}` },
+        ADVISORIES_EXAMPLE_OUTPUT,
+      ),
       description: ADVISORIES_DESCRIPTION,
       mimeType: "application/json",
       serviceName: DEPS_SERVICE_NAME,
@@ -225,6 +270,7 @@ export function createApp(cfg: AppConfig) {
     },
     "POST /deps/advisories/batch": {
       accepts: accepts(BATCH_PRICE),
+      ...listing(BATCH_PRICE, { method: "POST", path: "/deps/advisories/batch", body: BATCH_EXAMPLE_INPUT }, BATCH_EXAMPLE_OUTPUT),
       description: BATCH_DESCRIPTION,
       mimeType: "application/json",
       serviceName: DEPS_SERVICE_NAME,
@@ -240,6 +286,7 @@ export function createApp(cfg: AppConfig) {
 
   // Runs before the payment middleware: funnel bookkeeping, and input validation so a bad
   // request gets a free 400/404 instead of a 402 the agent would pay for and then fail.
+  // A bare request without a payment is quoted (402) unvalidated; with a payment it is validated, so it is never charged.
   const funnelAndValidate: MiddlewareHandler = async (c, next) => {
     const paid = PAID_ROUTES[c.req.path];
     if (!paid || c.req.method !== paid.method) return next();
@@ -250,7 +297,7 @@ export function createApp(cfg: AppConfig) {
     };
     const paymentHeader = c.req.header("payment-signature") || c.req.header("x-payment");
     try {
-      await paid.validate(c);
+      if (paymentHeader || !(await isBareRequest(c, paid.method))) await paid.validate(c);
     } catch (e) {
       if (!(e instanceof InputError)) throw e;
       funnel.log({ stage: "request", ...meta, status: e.status, reason: `rejected_input: ${e.code}` });
@@ -320,6 +367,10 @@ export function createApp(cfg: AppConfig) {
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
   app.get("/openapi.json", (c) => c.json(openApi(baseUrl(c), prices)));
+  app.get("/.well-known/openapi.json", (c) => c.json(openApi(baseUrl(c), prices)));
+  app.get("/favicon.ico", (c) =>
+    c.body(FAVICON_ICO, 200, { "Content-Type": "image/x-icon", "Cache-Control": "public, max-age=86400" }),
+  );
   app.get("/health", (c) =>
     c.json({ ok: true, network: cfg.network, facilitator: cfg.facilitatorKind, data_updated: calendar.dataUpdated }),
   );

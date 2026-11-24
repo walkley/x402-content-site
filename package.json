@@ -7,7 +7,8 @@
     "start": "tsx src/local.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p infra",
-    "e2e:sepolia": "tsx scripts/e2e-sepolia.ts"
+    "e2e:sepolia": "tsx scripts/e2e-sepolia.ts",
+    "self-pay:mainnet": "tsx scripts/self-pay-mainnet.ts"
   },
   "license": "ISC",
   "dependencies": {

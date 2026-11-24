@@ -15,6 +15,13 @@
       "networks": ["eip155:84532"],
       "added": "2026-11-24",
       "note": "Testnet payTo used for local end-to-end runs. Not the mainnet receiving address."
+    },
+    {
+      "address": "0x5cdD1cEAd6333073D2EC27B6C1eE073270236904",
+      "role": "self_pay",
+      "networks": ["eip155:8453"],
+      "added": "2026-11-24",
+      "note": "Base mainnet self-pay buyer (scripts/self-pay-mainnet.ts). Key in AWS Secrets Manager x402/buyer-wallet, ap-northeast-1."
     }
   ]
 }
