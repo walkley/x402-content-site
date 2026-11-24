@@ -20,6 +20,8 @@ export const INSIDER_FILINGS = 4;
  * on a cold cache. A warm container usually needs only the submissions call, or none.
  */
 export const MAX_SEC_CALLS_PER_REQUEST = 2 + INSIDER_FILINGS;
+/** Upper bound for a latest-filings request: ticker map + submissions. Enforced like the one above (infra SEC routes). */
+export const LATEST_FILINGS_MAX_SEC_CALLS = 2;
 /** Per-container pacing of SEC requests. The global bound comes from the API Gateway route throttle on /sec/* (infra). */
 export const SEC_RATE_PER_SEC = 4;
 export const TICKERS_TTL_MS = 24 * 60 * 60 * 1000;
@@ -363,13 +365,13 @@ export class SecClient {
     private readonly wait: (ms: number) => Promise<void> = sleep,
   ) {}
 
-  private budget(deadline = Infinity): Budget {
-    return { deadline: Math.min(this.now() + SEC_DEADLINE_MS, deadline), calls: MAX_SEC_CALLS_PER_REQUEST };
+  private budget(deadline = Infinity, calls = MAX_SEC_CALLS_PER_REQUEST): Budget {
+    return { deadline: Math.min(this.now() + SEC_DEADLINE_MS, deadline), calls };
   }
 
   /** Waits for this container's next SEC slot (SEC_RATE_PER_SEC), then fetches. 404 returns null. */
   private async get(url: string, budget: Budget, as: "json" | "text"): Promise<unknown> {
-    if (budget.calls <= 0) throw new UpstreamError(`SEC request limit of ${MAX_SEC_CALLS_PER_REQUEST} per call reached`);
+    if (budget.calls <= 0) throw new UpstreamError("SEC request limit per call reached");
     budget.calls--;
     const start = Math.max(this.now(), this.nextSlot);
     this.nextSlot = start + 1000 / SEC_RATE_PER_SEC;
@@ -508,7 +510,7 @@ export class SecClient {
   }
 
   async latestFilings(q: FilingsQuery, deadline?: number): Promise<FilingsResult> {
-    const budget = this.budget(deadline);
+    const budget = this.budget(deadline, LATEST_FILINGS_MAX_SEC_CALLS);
     const cik = await this.cikOf(q, budget);
     const sub = await this.submissionsOf(cik, budget);
     const filings = sub.rows

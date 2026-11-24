@@ -632,10 +632,14 @@ export function createApp(cfg: AppConfig) {
   // /sec/* before anything else (and so before any payment is verified): only GET on the two literal paths. A HEAD or
   // a percent-encoded path such as /sec/insider%2Dtrades would otherwise reach the handler (Hono routes HEAD as GET and
   // matches decoded paths) through a request API Gateway may not count against the SEC route's throttle.
+  // Behind API Gateway the request must also have arrived on that path's own GET route (infra SEC_*_ROUTE_KEY), so a
+  // request on the ANY /sec/{proxy+} fallback never calls SEC and the infra worst-case count holds (6 + 2 + 0 per s).
   app.use("/sec/*", async (c, next) => {
     const raw = new URL(c.req.url).pathname;
     if (raw !== "/sec/insider-trades" && raw !== "/sec/latest-filings") return c.json({ error: "not_found" }, 404);
     if (c.req.method !== "GET") return c.json({ error: "method_not_allowed", message: "use GET" }, 405, { Allow: "GET" });
+    const routeKey = (c.env as { event?: { requestContext?: { routeKey?: unknown } } } | undefined)?.event?.requestContext?.routeKey;
+    if (routeKey !== undefined && routeKey !== `GET ${raw}`) return c.json({ error: "not_found" }, 404);
     return next();
   });
   const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);

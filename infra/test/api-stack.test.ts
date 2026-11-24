@@ -1,4 +1,4 @@
-import { MAX_SEC_CALLS_PER_REQUEST } from "../../src/sec.js";
+import { LATEST_FILINGS_MAX_SEC_CALLS, MAX_SEC_CALLS_PER_REQUEST } from "../../src/sec.js";
 import { App } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
@@ -50,11 +50,18 @@ describe("ApiStack", () => {
   });
 
   it("gives POST /mcp, POST /paid/mcp and the SEC routes their own routes on the same integration and throttles, other paid routes unchanged", () => {
-    template.resourceCountIs("AWS::ApiGatewayV2::Route", 4);
+    template.resourceCountIs("AWS::ApiGatewayV2::Route", 6);
     template.resourceCountIs("AWS::ApiGatewayV2::Integration", 1);
     const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route"));
     const byKey = new Map(routes.map((r) => [r.Properties.RouteKey as string, r.Properties]));
-    expect([...byKey.keys()].sort()).toEqual(["$default", "ANY /sec/{proxy+}", "POST /mcp", "POST /paid/mcp"]);
+    expect([...byKey.keys()].sort()).toEqual([
+      "$default",
+      "ANY /sec/{proxy+}",
+      "GET /sec/insider-trades",
+      "GET /sec/latest-filings",
+      "POST /mcp",
+      "POST /paid/mcp",
+    ]);
     const integrationId = logicalId("AWS::ApiGatewayV2::Integration", "HttpApi");
     for (const r of byKey.values()) {
       expect(JSON.stringify(r.Target)).toContain(integrationId);
@@ -65,13 +72,19 @@ describe("ApiStack", () => {
       "POST /mcp": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
       "POST /paid/mcp": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
       "ANY /sec/{proxy+}": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 1 },
+      "GET /sec/insider-trades": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 1 },
+      "GET /sec/latest-filings": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 1 },
     });
     expect(stage.Properties.DefaultRouteSettings).toEqual({ ThrottlingRateLimit: 10, ThrottlingBurstLimit: 20 });
     expect(stage.DependsOn).toContain(logicalId("AWS::ApiGatewayV2::Route", "McpRoute"));
     expect(stage.DependsOn).toContain(logicalId("AWS::ApiGatewayV2::Route", "PaidMcpRoute"));
-    expect(stage.DependsOn).toContain(logicalId("AWS::ApiGatewayV2::Route", "SecRoute"));
-    // SEC fair access is 10 requests per second: per-route rps x SEC calls per request stays below it
-    expect((SEC_THROTTLE.rateLimit + SEC_THROTTLE.burstLimit - 1) * MAX_SEC_CALLS_PER_REQUEST).toBeLessThan(10);
+    for (const id of ["SecRoute", "SecInsiderRoute", "SecFilingsRoute"]) expect(stage.DependsOn).toContain(logicalId("AWS::ApiGatewayV2::Route", id));
+    // SEC fair access is 10 requests per second. Worst case for the whole API: each SEC route's requests per second x
+    // its SEC calls per request; the ANY /sec/{proxy+} fallback makes none (the app serves SEC only on the GET routes).
+    const perRoute = SEC_THROTTLE.rateLimit + SEC_THROTTLE.burstLimit - 1;
+    const worst = perRoute * MAX_SEC_CALLS_PER_REQUEST + perRoute * LATEST_FILINGS_MAX_SEC_CALLS + perRoute * 0;
+    expect(worst).toBe(8);
+    expect(worst).toBeLessThanOrEqual(10);
     expect(stageId).toMatch(/^DefaultStage/);
     // /mcp at its throttle cannot reach the breaker threshold alone in 24 hours (README "Cost breaker")
     expect(2 * 86_400).toBeLessThan(BASE.breakerDailyInvocations);

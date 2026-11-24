@@ -4,6 +4,7 @@ import { InputError } from "../src/calendar.js";
 import { UpstreamError } from "../src/advisories.js";
 import {
   INSIDER_FILINGS,
+  LATEST_FILINGS_MAX_SEC_CALLS,
   MAX_SEC_CALLS_PER_REQUEST,
   SEC_DEADLINE_MS,
   SEC_RATE_PER_SEC,
@@ -151,7 +152,7 @@ describe("SecClient with recorded fixtures", () => {
     ]);
     expect(r.filings[1].document_url).toBe("https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/aapl-20261102.htm");
     expect(r.filings[1]).not.toHaveProperty("primary_document");
-    expect(c.upstreamCalls).toBe(2);
+    expect(c.upstreamCalls).toBe(LATEST_FILINGS_MAX_SEC_CALLS); // tickers + submissions, cold cache
     const all = await c.latestFilings({ cik: "0000320193", limit: 50 });
     expect(all.count).toBe(30); // the fixture keeps 30 filings
     expect(all.form).toBeNull();

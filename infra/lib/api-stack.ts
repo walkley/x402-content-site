@@ -53,12 +53,26 @@ export const MCP_ROUTE_KEY = "POST /mcp";
 export const PAID_MCP_ROUTE_KEY = "POST /paid/mcp";
 export const MCP_THROTTLE = { rateLimit: 2, burstLimit: 5 };
 /**
- * Everything under /sec, any method and any spelling of the path (HEAD, %2D-encoded...), goes to one route with its
- * own throttle, so no SEC-calling request can fall through to $default's 10 rps. The app also refuses anything but
- * GET on the two literal paths. sec.gov's fair-access limit is 10 requests per second; a paid request makes at most
- * 6 SEC calls (app src/sec.ts MAX_SEC_CALLS_PER_REQUEST), so 1 rps with burst 1 keeps the whole API at about 6 SEC
- * calls per second whatever the number of containers (10 x 4 calls/s per container would otherwise allow 40).
+ * SEC routes. sec.gov's fair-access limit is 10 requests per second. Each paid endpoint has its own GET route with its
+ * own 1 rps / burst 1 throttle, so a directory that probes both in the same second (x402scan does) gets a 402 from each
+ * instead of a 429 for one of them. Everything else under /sec (HEAD and other methods, other paths, a trailing
+ * slash) lands on the ANY /sec/{proxy+} fallback, also 1 rps / burst 1, and never on $default's 10 rps.
+ *
+ * Worst case SEC calls per second for the whole API, whatever the number of containers (each container also paces its
+ * own calls at 4/s, which alone would allow 10 x 4 = 40):
+ *   GET /sec/insider-trades  1 req/s x 6 (src/sec.ts MAX_SEC_CALLS_PER_REQUEST: tickers + submissions + 4 Form 4) = 6
+ *   GET /sec/latest-filings  1 req/s x 2 (src/sec.ts LATEST_FILINGS_MAX_SEC_CALLS: tickers + submissions)        = 2
+ *   ANY /sec/{proxy+}        0: the app refuses it before payment and before any SEC call                         = 0
+ *   total 8 <= 10. Both per-request caps are enforced by SecClient's call budget, not only counted.
+ *
+ * Why the fallback carries no SEC call: API Gateway matches routes on the decoded path, so /sec/insider%2Dtrades
+ * matches GET /sec/insider-trades and counts against that route's own throttle; HEAD does not match a GET route.
+ * The app then serves only GET whose raw path is one of the two literal paths AND whose API Gateway routeKey is that
+ * path's own GET route (src/app.ts); anything else, including any request that arrived on the fallback, gets a free
+ * 404/405 before payment is verified. So no spelling or method reaches SEC through a throttle above 1 rps per route.
  */
+export const SEC_INSIDER_ROUTE_KEY = "GET /sec/insider-trades";
+export const SEC_FILINGS_ROUTE_KEY = "GET /sec/latest-filings";
 export const SEC_ROUTE_KEY = "ANY /sec/{proxy+}";
 export const SEC_THROTTLE = { rateLimit: 1, burstLimit: 1 };
 
@@ -189,7 +203,7 @@ export class ApiStack extends Stack {
       defaultIntegration: new HttpLambdaIntegration("Lambda", fn),
       createDefaultStage: false, // created below with throttling, which HttpApi's own default stage cannot set
     });
-    // POST /mcp and POST /paid/mcp each get their own route, pointed at the same integration, so that each can have its
+    // POST /mcp, POST /paid/mcp and the SEC routes each get their own route, pointed at the same integration, so that each can have its
     // own throttle. L1 routes: binding the L2 integration to another route would add another invoke permission, and the
     // existing one already covers every route of this API (SourceArn api-id/*/*). OPTIONS/GET/DELETE stay on $default.
     const integration = api.node.findAll().find((c): c is CfnIntegration => c instanceof CfnIntegration);
@@ -198,6 +212,8 @@ export class ApiStack extends Stack {
     const mcpRoute = new CfnRoute(this, "McpRoute", { apiId: api.apiId, routeKey: MCP_ROUTE_KEY, target });
     const paidMcpRoute = new CfnRoute(this, "PaidMcpRoute", { apiId: api.apiId, routeKey: PAID_MCP_ROUTE_KEY, target });
     const secRoute = new CfnRoute(this, "SecRoute", { apiId: api.apiId, routeKey: SEC_ROUTE_KEY, target });
+    const secInsiderRoute = new CfnRoute(this, "SecInsiderRoute", { apiId: api.apiId, routeKey: SEC_INSIDER_ROUTE_KEY, target });
+    const secFilingsRoute = new CfnRoute(this, "SecFilingsRoute", { apiId: api.apiId, routeKey: SEC_FILINGS_ROUTE_KEY, target });
     const stage = new HttpStage(this, "DefaultStage", {
       httpApi: api,
       stageName: "$default",
@@ -217,8 +233,10 @@ export class ApiStack extends Stack {
       [MCP_ROUTE_KEY]: mcpThrottle,
       [PAID_MCP_ROUTE_KEY]: mcpThrottle,
       [SEC_ROUTE_KEY]: secThrottle,
+      [SEC_INSIDER_ROUTE_KEY]: secThrottle,
+      [SEC_FILINGS_ROUTE_KEY]: secThrottle,
     };
-    stage.node.addDependency(mcpRoute, paidMcpRoute, secRoute); // the stage's route settings name the routes, so they must exist first
+    stage.node.addDependency(mcpRoute, paidMcpRoute, secRoute, secInsiderRoute, secFilingsRoute); // the stage's route settings name the routes, so they must exist first
 
     // The app uses its public base URL in /openapi.json, /llms.txt, the 402 body and iconUrl.
     if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", api.apiEndpoint);
