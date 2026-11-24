@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FacilitatorClient } from "@x402/core/server";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { ConditionalCheckFailedException, type UpdateItemCommand } from "@aws-sdk/client-dynamodb";
@@ -184,10 +184,10 @@ describe("MCP protocol", () => {
     expect(ok.headers.get("access-control-allow-origin")).toBe("https://app.example");
   });
 
-  it("tools/list returns both tools with input schemas", async () => {
+  it("tools/list returns the three tools with input schemas", async () => {
     const { rpc } = setup();
     const tools = (await rpc("tools/list")).body.result.tools as { name: string; inputSchema: { type: string } }[];
-    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories"]);
+    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories", "sec_insider_trades"]);
     for (const t of tools) expect(t.inputSchema.type).toBe("object");
   });
 
@@ -196,7 +196,7 @@ describe("MCP protocol", () => {
     type Schema = { properties: Record<string, { examples?: unknown[] }>; required?: string[]; examples?: Record<string, unknown>[] };
     const { rpc, call } = setup({ path });
     const tools = (await rpc("tools/list")).body.result.tools as { name: string; inputSchema: Schema }[];
-    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories"]);
+    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories", "sec_insider_trades"]);
     for (const { name, inputSchema: s } of tools) {
       for (const p of s.required ?? []) expect(s.properties[p].examples?.length, `${name}.${p}`).toBeGreaterThan(0);
       const withExamples = Object.entries(s.properties).filter(([, prop]) => prop.examples?.length);
@@ -213,7 +213,8 @@ describe("MCP protocol", () => {
         const r = (await call(name, args)).result;
         const what = `${name} ${JSON.stringify(args)}`;
         expect(r.content[0].text, what).not.toMatch(/^invalid_/);
-        if (path === "/mcp") expect(r.isError, what).toBeUndefined();
+        // sec_insider_trades has no free calls: a valid call is the payment link on /mcp too
+        if (path === "/mcp" && name !== "sec_insider_trades") expect(r.isError, what).toBeUndefined();
         else expect(r.structuredContent, what).toMatchObject({ status: 402 });
       }
     }
@@ -595,6 +596,8 @@ describe("payment link and /paid/mcp", () => {
     ["cn_workday_check", { date: "2026-10-08" }, `${BASE}/cn/workday?date=2026-10-08&src=mcp`, "3000"],
     ["cn_workday_check", { from: "2026-01-05", to: "2026-01-16" }, `${BASE}/cn/business-days?from=2026-01-05&to=2026-01-16&src=mcp`, "5000"],
     ["package_advisories", { ecosystem: "npm", name: "lodash", version: "4.17.20" }, `${BASE}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20&src=mcp`, "5000"],
+    ["sec_insider_trades", { ticker: "AAPL" }, `${BASE}/sec/insider-trades?ticker=AAPL&src=mcp`, "3000"],
+    ["sec_insider_trades", { cik: "320193" }, `${BASE}/sec/insider-trades?cik=320193&src=mcp`, "3000"],
   ] as const;
 
   it.each(CASES)("/paid/mcp %s %j: payment link {url, status: 402, challenge} equal field by field to the HTTP 402", async (name, args, url, amount) => {
@@ -652,7 +655,7 @@ describe("payment link and /paid/mcp", () => {
     expect(init.instructions).toContain("no free calls");
     expect(init.instructions).toContain(`${BASE}/mcp`);
     const tools = (await rpc("tools/list")).body.result.tools as { name: string; description: string }[];
-    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories"]);
+    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories", "sec_insider_trades"]);
     for (const t of tools) expect(t.description).not.toContain("Free for");
   });
 
@@ -702,6 +705,74 @@ describe("payment link and /paid/mcp", () => {
     expect(r.isError).toBe(true);
     expect(r.structuredContent).toBeUndefined();
     expect(r.content[0].text).toContain(`GET ${BASE}/cn/workday?date=2026-10-08&src=mcp`);
+  });
+});
+
+describe("sec_insider_trades: paid only, never calls SEC", () => {
+  const IP = "203.0.113.9";
+  const secFetch = () => vi.fn(async () => {
+    throw new Error("SEC must not be called from MCP");
+  });
+  const setupSec = (path: string) => {
+    const fetchImpl = secFetch();
+    vi.stubGlobal("fetch", fetchImpl);
+    return { ...setup({ path }), fetchImpl };
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["/mcp", "/paid/mcp"])("%s: a valid call is the payment link, the free quota is not touched, SEC and the facilitator are not called", async (path) => {
+    const { call, db, facilitator, funnel, fetchImpl } = setupSec(path);
+    const r = (await call("sec_insider_trades", { ticker: "msft" }, IP)).result;
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toMatchObject({ status: 402, url: `${BASE}/sec/insider-trades?ticker=msft&src=mcp` });
+    expect(r.structuredContent.challenge.accepts[0]).toMatchObject({ scheme: "exact", network: NETWORK, payTo: PAY_TO, amount: "3000" });
+    expect(r.content[0].text).toContain(path === "/mcp" ? "sec_insider_trades has no free calls" : "(/paid/mcp) has no free tier");
+    expect(db.calls).toHaveLength(0);
+    expect(facilitator.paymentCalls).toBe(0);
+    expect(funnel).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each(["/mcp", "/paid/mcp"])("%s: no arguments means ticker AAPL", async (path) => {
+    const { call } = setupSec(path);
+    for (const args of [{}, undefined]) {
+      expect((await call("sec_insider_trades", args)).result.structuredContent).toMatchObject({ status: 402, url: `${BASE}/sec/insider-trades?ticker=AAPL&src=mcp` });
+    }
+  });
+
+  it("invalid arguments get the input error and no link", async () => {
+    const { call } = setupSec("/mcp");
+    for (const [args, code] of [
+      [{ ticker: "AAPL", cik: "320193" }, "invalid_arguments"],
+      [{ ticker: "not a ticker!" }, "invalid_ticker"],
+      [{ cik: "0" }, "invalid_cik"],
+    ] as const) {
+      const r = (await call("sec_insider_trades", args)).result;
+      expect(r.content[0].text).toMatch(new RegExp(`^${code}`));
+      expect(r.structuredContent).toBeUndefined();
+    }
+  });
+
+  it("logs outcome paid_tool on /mcp", async () => {
+    const { call } = setupSec("/mcp");
+    await call("sec_insider_trades", { ticker: "AAPL" });
+    const line = (console.log as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .map((c) => JSON.parse(String(c[0])) as Record<string, unknown>)
+      .filter((l) => l.type === "mcp")
+      .at(-1);
+    expect(line).toMatchObject({ path: "/mcp", tool: "sec_insider_trades", outcome: "paid_tool", payment_link: true });
+    expect(line!.free_call_n).toBeUndefined();
+  });
+
+  it("the schema has a default and examples, and the manifest lists its price", async () => {
+    const { rpc, app } = setupSec("/mcp");
+    const tools = (await rpc("tools/list")).body.result.tools as { name: string; inputSchema: Record<string, any> }[];
+    const s = tools.find((t) => t.name === "sec_insider_trades")!.inputSchema;
+    expect(s.properties.ticker).toMatchObject({ default: "AAPL", examples: ["AAPL"] });
+    expect(s.examples).toEqual([{ ticker: "AAPL" }, { cik: "320193" }]);
+    const m = await (await app.request("/.well-known/mcp.json")).json();
+    expect(m.payment.prices.sec_insider_trades).toBe("$0.003");
+    expect(m.tools.map((t: { name: string }) => t.name)).toContain("sec_insider_trades");
   });
 });
 
