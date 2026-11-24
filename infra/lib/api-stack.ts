@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
-import { HttpApi, HttpStage } from "aws-cdk-lib/aws-apigatewayv2";
+import { AccessLogFormat } from "aws-cdk-lib/aws-apigateway";
+import { HttpApi, HttpStage, LogGroupLogDestination } from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { CfnBudget } from "aws-cdk-lib/aws-budgets";
 import { Alarm, ComparisonOperator, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
@@ -38,6 +39,23 @@ export interface ApiStackProps extends StackProps {
 }
 
 export const MAINNET_NETWORK = "eip155:8453";
+
+/** HTTP API access log line ($context variables; the query string is not logged). */
+export const ACCESS_LOG_FIELDS = {
+  requestId: "$context.requestId",
+  requestTime: "$context.requestTime",
+  ip: "$context.identity.sourceIp",
+  method: "$context.httpMethod",
+  path: "$context.path",
+  routeKey: "$context.routeKey",
+  status: "$context.status",
+  responseLength: "$context.responseLength",
+  responseLatency: "$context.responseLatency",
+  integrationStatus: "$context.integrationStatus",
+  integrationLatency: "$context.integrationLatency",
+  integrationErrorMessage: "$context.integrationErrorMessage",
+  integrationError: "$context.integration.error",
+};
 
 /**
  * Breaker handler (inline, CommonJS, AWS SDK v3 from the Node 22 runtime). It only ever sets the API function's
@@ -129,6 +147,12 @@ export class ApiStack extends Stack {
       stageName: "$default",
       autoDeploy: true,
       throttle: { rateLimit: 10, burstLimit: 20 },
+      // One JSON line per request, so 4xx/5xx can be listed by status without matching Lambda logs (R10).
+      // HTTP APIs write access logs through their service-linked role; no API Gateway account role is needed.
+      accessLogSettings: {
+        destination: new LogGroupLogDestination(new LogGroup(this, "AccessLogs", { retention: RetentionDays.ONE_MONTH })),
+        format: AccessLogFormat.custom(JSON.stringify(ACCESS_LOG_FIELDS)),
+      },
     });
 
     // The app uses its public base URL in /openapi.json, /llms.txt, the 402 body and iconUrl.

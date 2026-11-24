@@ -1,5 +1,5 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
-import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
+import { paymentMiddlewareFromHTTPServer, x402HTTPResourceServer, x402ResourceServer } from "@x402/hono";
 import { HTTPFacilitatorClient, type FacilitatorClient, type RoutesConfig } from "@x402/core/server";
 import type { Network } from "@x402/core/types";
 import { decodePaymentRequiredHeader, type FacilitatorConfig } from "@x402/core/http";
@@ -75,7 +75,15 @@ export interface AppConfig {
   funnel?: FunnelLogger;
   /** OSV.dev client (tests inject one with a fake fetch). */
   osv?: OsvClient;
+  /** Per-attempt limit on the facilitator /supported sync. Default FACILITATOR_INIT_TIMEOUT_MS. */
+  facilitatorInitTimeoutMs?: number;
 }
+
+/**
+ * The library's own /supported request has a 90 s timeout. We stop waiting after this and try again on the next paid
+ * request; verify/settle keep the client's own timeout because settlement waits for the chain.
+ */
+export const FACILITATOR_INIT_TIMEOUT_MS = 5_000;
 
 type Env = Record<string, string | undefined>;
 
@@ -320,6 +328,39 @@ export function createApp(cfg: AppConfig) {
     },
   };
 
+  // The library's default (syncFacilitatorOnStart) starts GET /supported at module load and never waits for it. When
+  // the instance's first request is free, Lambda freezes the instance with that request in flight; its 90 s abort
+  // timer then fires on wake and the next paid request got a 502. We sync ourselves instead: during Lambda init
+  // (lambda.ts awaits initFacilitator), and again before a paid request if that did not succeed.
+  const httpServer = new x402HTTPResourceServer(server, routes);
+  const initTimeoutMs = cfg.facilitatorInitTimeoutMs ?? FACILITATOR_INIT_TIMEOUT_MS;
+  let synced = false;
+  let syncing: Promise<boolean> | undefined;
+  /** One attempt, at most initTimeoutMs; never throws. Concurrent callers share the attempt. */
+  const initFacilitator = (): Promise<boolean> =>
+    (syncing ??= (async () => {
+      try {
+        await withTimeout(httpServer.initialize(), initTimeoutMs);
+        synced = true;
+      } catch (e) {
+        console.warn(JSON.stringify({ ts: new Date().toISOString(), type: "facilitator_sync_failed", message: (e as Error).message }));
+      } finally {
+        syncing = undefined;
+      }
+      return synced;
+    })());
+  // Before the payment middleware: a failed sync is retried once in this request; only a second failure is an error,
+  // a 503 with nothing charged (no payment is verified or settled without a synced facilitator).
+  const facilitatorGate: MiddlewareHandler = async (c, next) => {
+    if (synced || (await initFacilitator()) || (await initFacilitator())) return next();
+    c.set("failure", "facilitator_unavailable");
+    c.header("Retry-After", "5");
+    return c.json(
+      { error: "facilitator_unavailable", message: "The payment facilitator did not answer. You were not charged; retry shortly." },
+      503,
+    );
+  };
+
   // Runs before the payment middleware: funnel bookkeeping, and input validation so a bad
   // request gets a free 400/404 instead of a 402 the agent would pay for and then fail.
   // A bare request without a payment is quoted (402) unvalidated; with a payment it is validated, so it is never charged.
@@ -414,9 +455,10 @@ export function createApp(cfg: AppConfig) {
 
   // Batch bodies are at most 50 small objects; refuse anything larger before parsing.
   app.use("/deps/advisories/batch", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
-  const payment = paymentMiddleware(routes, server);
+  const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
   for (const prefix of ["/cn/*", "/deps/*"]) {
     app.use(prefix, funnelAndValidate);
+    app.use(prefix, facilitatorGate);
     app.use(prefix, payment);
   }
 
@@ -447,5 +489,14 @@ export function createApp(cfg: AppConfig) {
     }
   });
 
-  return app;
+  return Object.assign(app, { initFacilitator });
+}
+
+/** Rejects after ms; the abandoned promise keeps running and its result is ignored. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`facilitator /supported sync timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
