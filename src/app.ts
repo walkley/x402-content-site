@@ -267,8 +267,6 @@ export function createApp(cfg: AppConfig) {
       funnel.log({ stage: "settle_fail", ...m, reason: ctx.error.message, network: ctx.requirements.network });
     });
 
-  // The route description is static, so the install line needs the configured public origin (set in production).
-  const install = cfg.publicBaseUrl ? ` Install: npx agentcash add ${cfg.publicBaseUrl}` : "";
   const accepts = (price: string) => ({ scheme: "exact", price, network: cfg.network, payTo: cfg.payTo });
   const originOf = (ctx: HTTPRequestContext) => cfg.publicBaseUrl ?? new URL(ctx.adapter.getUrl()).origin;
   /** iconUrl, and a 402 body that a plain-fetch agent (which never decodes PAYMENT-REQUIRED) can act on. */
@@ -297,7 +295,7 @@ export function createApp(cfg: AppConfig) {
     "GET /cn/workday": {
       accepts: accepts(WORKDAY_PRICE),
       ...listing(WORKDAY_PRICE, { method: "GET", path: `/cn/workday?${new URLSearchParams(WORKDAY_EXAMPLE_INPUT)}` }, WORKDAY_EXAMPLE_OUTPUT),
-      description: WORKDAY_DESCRIPTION + install,
+      description: WORKDAY_DESCRIPTION,
       mimeType: "application/json",
       serviceName: SERVICE_NAME,
       tags: TAGS,
@@ -314,7 +312,7 @@ export function createApp(cfg: AppConfig) {
         { method: "GET", path: `/cn/business-days?${new URLSearchParams(BUSINESS_DAYS_EXAMPLE_INPUT)}` },
         BUSINESS_DAYS_EXAMPLE_OUTPUT,
       ),
-      description: BUSINESS_DAYS_DESCRIPTION + install,
+      description: BUSINESS_DAYS_DESCRIPTION,
       mimeType: "application/json",
       serviceName: SERVICE_NAME,
       tags: TAGS,
@@ -331,7 +329,7 @@ export function createApp(cfg: AppConfig) {
         { method: "GET", path: `/deps/advisories?${new URLSearchParams(ADVISORIES_EXAMPLE_INPUT)}` },
         ADVISORIES_EXAMPLE_OUTPUT,
       ),
-      description: ADVISORIES_DESCRIPTION + install,
+      description: ADVISORIES_DESCRIPTION,
       mimeType: "application/json",
       serviceName: DEPS_SERVICE_NAME,
       tags: DEPS_TAGS,
@@ -344,7 +342,7 @@ export function createApp(cfg: AppConfig) {
     "POST /deps/advisories/batch": {
       accepts: accepts(BATCH_PRICE),
       ...listing(BATCH_PRICE, { method: "POST", path: "/deps/advisories/batch", body: BATCH_EXAMPLE_INPUT }, BATCH_EXAMPLE_OUTPUT),
-      description: BATCH_DESCRIPTION + install,
+      description: BATCH_DESCRIPTION,
       mimeType: "application/json",
       serviceName: DEPS_SERVICE_NAME,
       tags: DEPS_TAGS,

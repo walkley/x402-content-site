@@ -20,7 +20,8 @@ import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
 export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
 export const REPO_URL = "https://github.com/walkley/x402-content-site";
-export const SITE_NAME = "China Workday Calendar and Package Vulnerability Advisories (x402 pay-per-call APIs)";
+// Also the openapi info.title, which `npx agentcash add` lowercases into a skill name: keep it to letters, digits and spaces, at most 64 characters.
+export const SITE_NAME = "China Workday Calendar and Package Vulnerability Advisories";
 
 const DATE_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
 
@@ -143,8 +144,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       title: SITE_NAME,
       version: "1.2.0",
       description:
-        `Pay-per-call x402 APIs (USDC). ${SERVICE_NAME}: is a date a working day in mainland China, with official holidays and makeup workdays (调休). ` +
-        `${DEPS_SERVICE_NAME}: is this npm, PyPI, Go, crates.io or Maven package version safe to install; batch ${perPackagePrice(p.batchPrice)} per package.`,
+        // `npx agentcash add` copies this unquoted into YAML frontmatter, so no ": " or " #" (test/app.test.ts checks).
+        `Pay-per-call x402 APIs (USDC). ${SERVICE_NAME} — is a date a working day in mainland China, with official holidays and makeup workdays (调休). ` +
+        `${DEPS_SERVICE_NAME} — is this npm, PyPI, Go, crates.io or Maven package version safe to install; batch ${perPackagePrice(p.batchPrice)} per package.`,
       contact: { name: "Source and issues", url: REPO_URL },
       "x-guidance":
         "Call a paid route without payment to get a 402 with the price; pay with x402 v2 (exact, USDC) and retry with PAYMENT-SIGNATURE. " +
@@ -234,11 +236,15 @@ export function openApi(baseUrl: string, p: PriceInfo) {
   };
 }
 
-/** AgentCash one-line setup: `add` installs the origin's routes into the agent directly, without the AgentCash catalog. */
+/**
+ * AgentCash one-line setup, `add` first: it needs no wallet. `add` registers this origin in AgentCash's origin list and
+ * installs a pointer skill (built from openapi info.title/description) that runs `npx agentcash discover`; it does not
+ * read /SKILL.md. `try` and `onboard` create a wallet in ~/.agentcash on first run.
+ */
 export const agentcashCommands = (baseUrl: string) => [
-  "npx agentcash onboard",
-  `npx agentcash try ${baseUrl}`,
   `npx agentcash add ${baseUrl}`,
+  `npx agentcash try ${baseUrl}`,
+  "npx agentcash onboard",
 ];
 export const INSTALL_HEADING = "Use from Claude Code / Cursor / Codex";
 
@@ -251,7 +257,7 @@ export function llmsTxt(baseUrl: string, p: PriceInfo): string {
 
 ${agentcashCommands(baseUrl).join("\n")}
 
-Agent skill: ${baseUrl}/SKILL.md
+\`add\` needs no wallet; \`try\` and \`onboard\` create an AgentCash wallet on first run. Agent skill: ${baseUrl}/SKILL.md
 
 ## ${SERVICE_NAME}
 
@@ -299,7 +305,7 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <h1>${SITE_NAME}</h1>
 <section id="install">
 <h2>${INSTALL_HEADING}</h2>
-<p>Run in your terminal to add these APIs to your agent with <a href="https://github.com/Merit-Systems/agentcash">AgentCash</a>; any other x402 client works too.</p>
+<p>Run in your terminal to add these APIs to your agent with <a href="https://github.com/Merit-Systems/agentcash">AgentCash</a>; any other x402 client works too. <code>add</code> needs no wallet; <code>try</code> and <code>onboard</code> create an AgentCash wallet on first run.</p>
 <pre>${agentcashCommands(baseUrl).map(esc).join("\n")}</pre>
 </section>
 <p>Pay-per-call data for AI agents, paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>. Full schemas: <a href="/openapi.json">/openapi.json</a>. Agent summary: <a href="/llms.txt">/llms.txt</a>. Agent skill: <a href="/SKILL.md">/SKILL.md</a>.</p>
@@ -355,7 +361,7 @@ Base URL: ${baseUrl}
 
 ${agentcashCommands(baseUrl).map((c) => `    ${c}`).join("\n")}
 
-\`add\` saves these routes in AgentCash so the agent can call them later. You do not need AgentCash: any x402 client works (see Payment).
+\`add\` registers this origin with AgentCash and installs a small skill that runs \`npx agentcash discover\`; it needs no wallet. \`try\` and \`onboard\` create an AgentCash wallet on first run. You do not need AgentCash: any x402 v2 client works (see Payment).
 
 ## Endpoints
 
@@ -389,7 +395,7 @@ Full input and output schemas: ${baseUrl}/openapi.json
 
 ## Payment
 
-Any x402 v2 client pays USDC on Base (network ${p.network}, scheme "exact"): agentcash, x402-fetch / @x402/fetch, or Binance \`baw x402-payment\`.
+Any x402 v2 client pays USDC on Base (network ${p.network}, scheme "exact"): agentcash, @x402/fetch (2.x), or Binance \`baw x402-payment\`.
 Call the endpoint without payment to get a 402 with the price in the PAYMENT-REQUIRED header and the JSON body, sign one of its accepts, and retry with a PAYMENT-SIGNATURE header.
 Invalid input gets a free 400/404 before any payment is asked for. A 502 (upstream or facilitator failure) is not charged.
 

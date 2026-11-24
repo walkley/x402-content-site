@@ -398,7 +398,7 @@ describe("AgentCash one-line install and /SKILL.md", () => {
       publicBaseUrl: ORIGIN,
       funnel: new FunnelLogger(() => {}),
     });
-  const commands = ["npx agentcash onboard", `npx agentcash try ${ORIGIN}`, `npx agentcash add ${ORIGIN}`];
+  const commands = [`npx agentcash add ${ORIGIN}`, `npx agentcash try ${ORIGIN}`, "npx agentcash onboard"];
 
   it("the preview page shows the install block before the price table, and llms.txt lists the same commands right after the summary", async () => {
     const app = withBase();
@@ -406,12 +406,14 @@ describe("AgentCash one-line install and /SKILL.md", () => {
     expect(html).toContain("Use from Claude Code / Cursor / Codex");
     expect(html).toContain(commands.join("\n"));
     expect(html.indexOf("npx agentcash add")).toBeLessThan(html.indexOf("<table>"));
+    expect(html).toContain("<code>try</code> and <code>onboard</code> create an AgentCash wallet");
     const llms = await (await app.request("/llms.txt")).text();
     expect(llms).toContain(commands.join("\n"));
     expect(llms.indexOf("npx agentcash onboard")).toBeLessThan(llms.indexOf("## China Workday Calendar"));
+    expect(llms).toContain("create an AgentCash wallet on first run");
   });
 
-  it("every paid route's 402 carries the install line in resource.description and the body; payTo and amount are unchanged", async () => {
+  it("every paid route's 402 body carries the install command, resource.description does not; payTo and amount are unchanged", async () => {
     const app = withBase();
     for (const [path, method, amount] of [
       ["/cn/workday", "GET", "3000"],
@@ -422,7 +424,7 @@ describe("AgentCash one-line install and /SKILL.md", () => {
       const res = await app.request(path, { method, headers: UA });
       expect(res.status).toBe(402);
       const required = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
-      expect(required.resource.description).toContain(`Install: npx agentcash add ${ORIGIN}`);
+      expect(required.resource.description).not.toContain("agentcash");
       expect(required.accepts[0]).toMatchObject({ payTo: PAY_TO, amount, network: NETWORK });
       expect((await res.json()).install).toBe(`npx agentcash add ${ORIGIN}`);
     }
@@ -448,13 +450,25 @@ describe("AgentCash one-line install and /SKILL.md", () => {
       "GET /deps/advisories?ecosystem=&name=&version= ($0.005)",
       "POST /deps/advisories/batch ($0.02)",
       "npx agentcash add http://localhost",
-      "Any x402 v2 client pays USDC on Base",
+      "Any x402 v2 client pays USDC on Base (network eip155:84532, scheme \"exact\"): agentcash, @x402/fetch (2.x), or Binance",
       "www.gov.cn",
     ]) expect(md).toContain(line);
+    expect(md).not.toContain("x402-fetch"); // the v1-only client cannot pay a v2 quote
     const oa = await (await app.request("/openapi.json")).json();
     expect(oa.paths["/SKILL.md"].get.security).toEqual([]);
     expect(oa.paths["/SKILL.md"].get["x-payment-info"]).toBeUndefined();
     expect(events()).toHaveLength(0);
+  });
+
+  it("the skill `npx agentcash add` builds from openapi info is valid AgentSkills frontmatter", async () => {
+    const { info } = await (await withBase().request("/openapi.json")).json();
+    // Same template as agentcash@0.17.1 dist/esm/add-skill-*.js (originSkillTitle / originSkillContent): values are unquoted.
+    const frontmatter = `---\nname: ${info.title.toLowerCase().replace(/[ .]/g, "-")}\ndescription: ${info.description}\n---`;
+    const [, name, description] = frontmatter.match(/^---\nname: (.*)\ndescription: (.*)\n---$/)!;
+    expect(name).toMatch(/^[a-z0-9-]{1,64}$/);
+    expect(description.length).toBeGreaterThan(0);
+    expect(description).not.toContain(": ");
+    expect(description).not.toContain(" #");
   });
 });
 
