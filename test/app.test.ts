@@ -338,6 +338,67 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
   });
 });
 
+describe("402 body repeats the PAYMENT-REQUIRED quote (body-only clients such as market402)", () => {
+  const BATCH = JSON.stringify({ packages: [{ ecosystem: "npm", name: "lodash", version: "4.17.20" }] });
+  it.each([
+    ["/cn/workday?date=2026-10-08", "GET", undefined, "3000"],
+    ["/cn/business-days?from=2026-01-05&to=2026-01-16", "GET", undefined, "5000"],
+    ["/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20", "GET", undefined, "5000"],
+    ["/deps/advisories/batch", "POST", BATCH, "20000"],
+    ["/cn/workday", "GET", undefined, "3000"],
+    ["/deps/advisories/batch", "POST", undefined, "20000"],
+  ])("%s %s: body x402Version/accepts/resource equal the decoded header", async (path, method, body, amount) => {
+    const { app } = setup({ verify: true, settle: true }, new OsvClient(fakeOsvFetch().fn));
+    const res = await app.request(path, { method, body, headers: { ...UA, ...(body ? { "content-type": "application/json" } : {}) } });
+    expect(res.status).toBe(402);
+    expect(res.headers.get("content-length")).not.toBe("0");
+    const header = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
+    const json = await res.json();
+    expect(json.x402Version).toBe(header.x402Version);
+    expect(json.accepts).toEqual(header.accepts);
+    expect(json.resource).toEqual(header.resource);
+    // market402's checks: x402_version, accepts_present, pay_to, amount, network_present
+    expect(json.x402Version).toBe(2);
+    expect(json.accepts.length).toBeGreaterThan(0);
+    expect(json.accepts[0]).toMatchObject({ payTo: PAY_TO, amount, network: NETWORK });
+    // the explanatory fields are kept
+    expect(json).toMatchObject({ error: "Payment required", currency: "USDC" });
+    expect(json.how_to_pay).toBeTruthy();
+    expect(json.example).toBeTruthy();
+  });
+
+  it("a rejected payment's 402 also carries the quote, and nothing is settled", async () => {
+    const { app, facilitator } = setup({ verify: false, settle: true });
+    const res = await paidRequest(app, "/cn/workday?date=2026-10-08");
+    expect(res.status).toBe(402);
+    const json = await res.json();
+    expect(json.accepts).toEqual(decodePaymentRequiredHeader(res.headers.get("payment-required")!).accepts);
+    expect(facilitator.settleCalls).toBe(0);
+  });
+
+  it("invalid input with a payment header is still a free 400 without a quote", async () => {
+    const { app, facilitator } = setup({ verify: true, settle: true });
+    const res = await app.request("/cn/workday?date=2026-13-01", { headers: { ...UA, "payment-signature": "e30=" } });
+    expect(res.status).toBe(400);
+    expect(res.headers.get("payment-required")).toBeNull();
+    expect(await res.json()).not.toHaveProperty("accepts");
+    expect(facilitator.verifyCalls + facilitator.settleCalls).toBe(0);
+  });
+});
+
+describe("titles name the services", () => {
+  it("openapi info.title and the llms.txt heading carry both service names; contact points at the repo", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const oa = await (await app.request("/openapi.json")).json();
+    for (const title of [oa.info.title, (await (await app.request("/llms.txt")).text()).split("\n")[0]]) {
+      expect(title).toContain("China Workday Calendar");
+      expect(title).toContain("Package Vulnerability Advisories");
+    }
+    expect(oa.info.contact).toEqual({ name: "Source and issues", url: "https://github.com/walkley/x402-content-site" });
+    expect(oa.info.contact.email).toBeUndefined();
+  });
+});
+
 describe("configFromEnv", () => {
   it("defaults to Base Sepolia and the x402.org facilitator", () => {
     expect(configFromEnv({ X402_PAY_TO: PAY_TO })).toMatchObject({
