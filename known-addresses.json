@@ -1,0 +1,20 @@
+{
+  "purpose": "Wallets controlled by the team, test buyers, the user, or self-payments that trigger directory indexing. A payment whose payer (the `from` of the USDC Transfer event, not tx.from) is listed here does NOT count as an external paid call.",
+  "roles": ["team", "test", "user", "self_pay"],
+  "addresses": [
+    {
+      "address": "0x41836Aaa4799D787a0f02D22Ff584C3d72aC979a",
+      "role": "test",
+      "networks": ["eip155:84532"],
+      "added": "2026-11-24",
+      "note": "Base Sepolia end-to-end test buyer (scripts/e2e-sepolia.ts). Key kept outside the repo."
+    },
+    {
+      "address": "0x96B16408be584E863Ab3f05703059e302c474f0A",
+      "role": "team",
+      "networks": ["eip155:84532"],
+      "added": "2026-11-24",
+      "note": "Testnet payTo used for local end-to-end runs. Not the mainnet receiving address."
+    }
+  ]
+}

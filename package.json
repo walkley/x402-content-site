@@ -1,0 +1,41 @@
+{
+  "name": "x402-content-site",
+  "version": "1.0.0",
+  "description": "x402 pay-per-call China workday API for AI agents",
+  "scripts": {
+    "dev": "tsx watch src/local.ts",
+    "start": "tsx src/local.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p infra",
+    "e2e:sepolia": "tsx scripts/e2e-sepolia.ts"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "3.1176.0",
+    "@coinbase/x402": "2.1.0",
+    "@x402/core": "2.32.0",
+    "@x402/evm": "2.32.0",
+    "@x402/extensions": "2.32.0",
+    "@x402/hono": "2.32.0",
+    "hono": "^4.13.21"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^2.1.11",
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^26.6.6",
+    "@x402/fetch": "2.32.0",
+    "aws-cdk": "^2.1149.0",
+    "aws-cdk-lib": "^2.278.0",
+    "constructs": "^10.8.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "viem": "^2.58.6",
+    "vitest": "^5.1.1"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
+}
