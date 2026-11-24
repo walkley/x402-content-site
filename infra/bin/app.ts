@@ -20,5 +20,8 @@ new ApiStack(app, ctx("stackName") ?? "X402CnWorkdayApi", {
   facilitator,
   facilitatorUrl: ctx("facilitatorUrl"),
   cdpSecretName: ctx("cdpSecretName") ?? "x402-content-site/cdp-api-key",
+  reservedConcurrency: Number(ctx("reservedConcurrency") ?? 10),
+  budgetEmail: ctx("budgetEmail"),
+  budgetUsd: Number(ctx("budgetUsd") ?? 10),
   publicBaseUrl: ctx("publicBaseUrl"),
 });

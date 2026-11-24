@@ -191,6 +191,12 @@ describe("free routes", () => {
     expect(await llms.text()).toContain("/cn/business-days");
     const oa = await (await app.request("/openapi.json")).json();
     expect(oa.paths["/cn/workday"].get.responses["402"]).toBeTruthy();
+    for (const path of ["/cn/workday", "/cn/business-days"]) {
+      const r = oa.paths[path].get.responses;
+      expect(Object.keys(r["402"].headers)).toEqual(["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"]);
+      expect(r["200"].headers["PAYMENT-RESPONSE"]).toBeTruthy();
+      expect(r["502"]).toBeTruthy();
+    }
     expect(await (await app.request("/health")).json()).toMatchObject({ ok: true, network: NETWORK });
     expect(events()).toHaveLength(0);
   });

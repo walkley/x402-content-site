@@ -15,8 +15,8 @@ One file per calendar year, named after the year. The API loads every year liste
 | Field | Meaning |
 |---|---|
 | `year` | The year the notice covers. Equals the file name. |
-| `source_url` | The State Council (国务院办公厅) notice on www.gov.cn. |
-| `published` | Date the notice was signed (落款日期), `YYYY-MM-DD`. The newest value across files is shown as "data updated". |
+| `source_url` | The State Council (国务院办公厅) notice on www.gov.cn; for an amended year, the amending notice. |
+| `published` | Date the `source_url` notice was signed (落款日期), `YYYY-MM-DD`. The newest value across files is shown as "data updated". |
 | `holidays[]` | Official holiday periods (放假). `name` is copied from the notice heading. `start` and `end` are inclusive. A one-day holiday has `start == end`. A period may start in the previous year (2023 元旦 starts 2022-12-31) and stays in the file of the notice that announced it. |
 | `makeup_workdays[]` | Weekend days the notice designates as working days (调休上班). Always a Saturday or Sunday, never inside a holiday period. |
 
@@ -24,4 +24,4 @@ No other fields. Dates are always zero-padded `YYYY-MM-DD`.
 
 How the API classifies a date: inside a holiday period → `public_holiday`; else listed in `makeup_workdays` → `makeup_workday` (a working day); else Saturday/Sunday → `weekend`; else `workday`.
 
-Each file records the annual notice exactly as published. Later ad-hoc notices are not applied: the 2020 Spring Festival extension (国办发明电〔2020〕1号) is not reflected, so 2020-01-31 is a workday and 2020-02-01 a makeup workday. See `SOURCES.md` for sources, the verification run (`verify.py`) and this difference.
+Each file records the schedule actually in force nationally. Normally that is the annual notice as published. When a later national notice changes it, the file applies the change and `source_url`/`published` point to the amending notice. So far this applies only to 2020: the Spring Festival extension (国办发明电〔2020〕1号) makes 2020-01-24..2020-02-02 the holiday and removes the 2020-02-01 makeup workday. Provincial schedules are not included. See `SOURCES.md` for sources, the verification run (`verify.py`, which applies the amendment explicitly) and details.

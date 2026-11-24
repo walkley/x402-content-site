@@ -90,10 +90,21 @@ export interface PriceInfo {
 }
 
 export function openApi(baseUrl: string, p: PriceInfo) {
+  const b64 = { type: "string", description: "Base64-encoded JSON (x402 v2)" };
   const paid = (price: string) => ({
-    description: `Payment required (x402 v2). Price ${price} USDC on ${p.network}. Read the PAYMENT-REQUIRED header, then retry with PAYMENT-SIGNATURE.`,
+    description: `Payment required (x402 v2). Price ${price} USDC on ${p.network}. Decode the PAYMENT-REQUIRED header, sign one of its accepts, and retry with a PAYMENT-SIGNATURE header. Also returned when a payment is rejected or settlement fails; no content is sent in that case.`,
+    headers: {
+      "PAYMENT-REQUIRED": { ...b64, description: "Base64 JSON PaymentRequired: x402Version, accepts[] (scheme, network, asset, amount, payTo), resource, extensions, error" },
+      "PAYMENT-RESPONSE": { ...b64, description: "Base64 JSON settlement result; present when settlement was attempted and failed" },
+    },
+  });
+  const ok = (description: string, schema: unknown, example: unknown) => ({
+    description,
+    headers: { "PAYMENT-RESPONSE": { ...b64, description: "Base64 JSON SettleResponse: success, transaction (tx hash), network, payer" } },
+    content: { "application/json": { schema, example } },
   });
   const err = { description: "Invalid input or date outside the covered range. Not charged." };
+  const upstream = { description: "Facilitator unavailable or returned an error. Not charged; retry later." };
   return {
     openapi: "3.1.0",
     info: {
@@ -109,10 +120,11 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           "x-x402-price": p.workdayPrice,
           parameters: [{ name: "date", in: "query", required: true, schema: WORKDAY_INPUT_SCHEMA.properties.date }],
           responses: {
-            "200": { description: "Day classification", content: { "application/json": { schema: WORKDAY_OUTPUT_SCHEMA, example: WORKDAY_EXAMPLE_OUTPUT } } },
+            "200": ok("Day classification", WORKDAY_OUTPUT_SCHEMA, WORKDAY_EXAMPLE_OUTPUT),
             "400": err,
             "402": paid(p.workdayPrice),
             "404": err,
+            "502": upstream,
           },
         },
       },
@@ -125,10 +137,11 @@ export function openApi(baseUrl: string, p: PriceInfo) {
             { name: "to", in: "query", required: true, schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.to },
           ],
           responses: {
-            "200": { description: "Workdays in range", content: { "application/json": { schema: BUSINESS_DAYS_OUTPUT_SCHEMA, example: BUSINESS_DAYS_EXAMPLE_OUTPUT } } },
+            "200": ok("Workdays in range", BUSINESS_DAYS_OUTPUT_SCHEMA, BUSINESS_DAYS_EXAMPLE_OUTPUT),
             "400": err,
             "402": paid(p.businessDaysPrice),
             "404": err,
+            "502": upstream,
           },
         },
       },
@@ -186,7 +199,7 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <p>Full input and output schemas: <a href="/openapi.json">/openapi.json</a>. Agent summary: <a href="/llms.txt">/llms.txt</a>.</p>
 <pre>${esc(JSON.stringify(WORKDAY_OUTPUT_SCHEMA, null, 2))}</pre>
 <h2>Sources</h2>
-<p>Each year follows the original State Council (国务院办公厅) annual holiday notice on gov.cn. Later ad-hoc notices are not applied (for example the 2020 Spring Festival extension, 国办发明电〔2020〕1号).</p>
+<p>Each year follows the State Council (国务院办公厅) holiday notice on gov.cn as actually applied nationwide. 2020 includes the Spring Festival extension (国办发明电〔2020〕1号): holiday until 2020-02-02, work resumed 2020-02-03. Provincial schedules are not included.</p>
 <ul>${sourceList}</ul>
 <p><a href="${REPO_URL}">Source code and data</a></p>
 </body></html>`;

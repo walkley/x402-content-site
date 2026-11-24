@@ -25,6 +25,20 @@ NUM = "一二三四五六七八九十"
 DATE_RE = re.compile(r"(?:(\d{4})年)?(?:(\d{1,2})月)?(\d{1,2})日")
 DAYS_RE = re.compile(r"共(\d+)天")
 
+# Years changed by a later national notice. The JSON then records the schedule actually in force:
+# source_url/published point to the amending notice, the dates are the annual notice with the
+# amendment applied. verify.py parses the annual notice, applies the amendment, and checks that
+# the amending page contains the quoted sentence.
+AMENDMENTS = {
+    2020: {
+        "annual_url": "https://www.gov.cn/zhengce/content/2019-11/21/content_5454164.htm",
+        "title": "国务院办公厅关于延长2020年春节假期的通知",
+        "must_contain": "延长2020年春节假期至2月2日（农历正月初九，星期日），2月3日（星期一）起正常上班",
+        "holiday_end": {"春节": "2020-02-02"},
+        "drop_makeup": ["2020-02-01"],
+    },
+}
+
 
 def fetch_text(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -75,14 +89,28 @@ def check_year(path):
     if not d["source_url"].startswith("https://www.gov.cn/"):
         errs.append("source_url not on www.gov.cn")
 
-    text = fetch_text(d["source_url"])
-    if f"国务院办公厅关于{year}年部分节假日安排的通知" not in text:
-        errs.append("notice title not found on page")
+    amend = AMENDMENTS.get(year)
     pub = dt.date.fromisoformat(d["published"])
-    if f"{pub.year}年{pub.month}月{pub.day}日" not in text:
-        errs.append(f"published {d['published']} not in signature date")
+    if amend:
+        amend_text = fetch_text(d["source_url"])
+        if amend["title"] not in amend_text or amend["must_contain"] not in amend_text:
+            errs.append("amending notice text not found on source_url page")
+        if f"{pub.year}年{pub.month}月{pub.day}日" not in amend_text:
+            errs.append(f"published {d['published']} not in amending notice signature date")
+        text = fetch_text(amend["annual_url"])
+    else:
+        text = fetch_text(d["source_url"])
+        if f"{pub.year}年{pub.month}月{pub.day}日" not in text:
+            errs.append(f"published {d['published']} not in signature date")
+    if f"国务院办公厅关于{year}年部分节假日安排的通知" not in text:
+        errs.append("annual notice title not found on page")
 
     hols, makeups = parse_notice(text, year)
+    if amend:
+        for h in hols:
+            if h["name"] in amend["holiday_end"]:
+                h["end"], h["days"] = amend["holiday_end"][h["name"]], None  # 共N天 refers to the original range
+        makeups = [m for m in makeups if m not in amend["drop_makeup"]]
     got = [{"name": h["name"], "start": h["start"], "end": h["end"]} for h in hols]
     if got != d["holidays"]:
         errs.append(f"holidays differ:\n  notice={got}\n  json  ={d['holidays']}")

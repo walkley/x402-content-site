@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
+import { CfnBudget } from "aws-cdk-lib/aws-budgets";
 import { Architecture, FunctionUrlAuthType, LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
@@ -15,6 +16,11 @@ export interface ApiStackProps extends StackProps {
   /** cdp only: name of the Secrets Manager secret holding {"CDP_API_KEY_ID","CDP_API_KEY_SECRET"}. Created by a person, not by this stack. */
   cdpSecretName: string;
   publicBaseUrl?: string;
+  /** Caps concurrent invocations so a flood of free 402/400 responses cannot take the account's pool. */
+  reservedConcurrency: number;
+  /** Creates a monthly AWS Budgets cost alert to this address. No budget when unset. */
+  budgetEmail?: string;
+  budgetUsd: number;
 }
 
 /** One Lambda (Node 22, arm64) behind a public Lambda Function URL. */
@@ -30,6 +36,7 @@ export class ApiStack extends Stack {
       runtime: Runtime.NODEJS_22_X,
       architecture: Architecture.ARM_64,
       memorySize: 256,
+      reservedConcurrentExecutions: props.reservedConcurrency,
       timeout: Duration.seconds(30), // settlement waits for the facilitator to land the tx
       logGroup,
       // JSON format keeps the funnel lines queryable in CloudWatch Logs Insights.
@@ -48,6 +55,24 @@ export class ApiStack extends Stack {
     if (props.facilitator === "cdp") {
       // Read access to this one secret only (the ARN wildcard covers Secrets Manager's random suffix).
       Secret.fromSecretNameV2(this, "CdpApiKey", props.cdpSecretName).grantRead(fn);
+    }
+
+    if (props.budgetEmail) {
+      // Account-wide monthly cost budget: mail at 80% and 100% of actual spend, and when the forecast passes 100%.
+      const subscribers = [{ subscriptionType: "EMAIL", address: props.budgetEmail }];
+      const notify = (notificationType: "ACTUAL" | "FORECASTED", threshold: number) => ({
+        notification: { notificationType, comparisonOperator: "GREATER_THAN", threshold, thresholdType: "PERCENTAGE" },
+        subscribers,
+      });
+      new CfnBudget(this, "MonthlyBudget", {
+        budget: {
+          budgetName: `${this.stackName}-monthly`,
+          budgetType: "COST",
+          timeUnit: "MONTHLY",
+          budgetLimit: { amount: props.budgetUsd, unit: "USD" },
+        },
+        notificationsWithSubscribers: [notify("ACTUAL", 80), notify("ACTUAL", 100), notify("FORECASTED", 100)],
+      });
     }
 
     const url = fn.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });

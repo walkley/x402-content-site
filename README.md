@@ -94,7 +94,11 @@ npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=cdp     # ma
 npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=payai   # mainnet, no account
 ```
 
-Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`, `facilitatorUrl`, `cdpSecretName`. The stack is one arm64 Lambda (256 MB, 30 s timeout, logs kept 90 days, JSON log format) with a public Function URL, printed as the `ApiUrl` output.
+Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`, `facilitatorUrl`, `cdpSecretName`, `reservedConcurrency` (default `10`), `budgetEmail`, `budgetUsd` (default `10`).
+
+The stack is one arm64 Lambda (256 MB, 30 s timeout, logs kept 90 days, JSON log format) with a public Function URL, printed as the `ApiUrl` output. The function has **10 reserved concurrent executions**, so a flood of free 402/400 responses cannot use up the account's concurrency or run up cost; extra requests get throttled (HTTP 429). AWS requires at least 10 unreserved executions to remain in the account, so a new account whose concurrency quota is still 10 must first request a higher Lambda concurrency quota (Service Quotas, free).
+
+With `-c budgetEmail=you@example.com` the stack also creates an account-wide monthly AWS Budgets cost budget of `budgetUsd` (default $10) that emails at 80% and 100% of actual spend and when the forecast passes 100%. Without `budgetEmail` no budget is created.
 
 ## Funnel logs
 
@@ -125,7 +129,7 @@ fields @timestamp, stage, route, payer, tx | filter type = "x402_funnel" | stats
 
 ## Data
 
-`data/cn-holidays/<year>.json` holds one State Council notice per year, 2020–2027. The format is documented in `data/cn-holidays/README.md`; sources and the verification run are in `data/cn-holidays/SOURCES.md`. Each year follows the annual notice as published. Later ad-hoc notices are not applied (notably the 2020 Spring Festival extension).
+`data/cn-holidays/<year>.json` holds one State Council notice per year, 2020–2027. The format is documented in `data/cn-holidays/README.md`; sources and the verification run are in `data/cn-holidays/SOURCES.md`. Each year follows the schedule actually in force nationally: the annual notice, plus later national amendments. The only amendment so far is the 2020 Spring Festival extension (国办发明电〔2020〕1号): 2020-01-31 to 2020-02-02 are holidays and 2020-02-03 is the first workday. Provincial schedules are not included.
 
 ## What the user needs to provide before mainnet
 
@@ -133,3 +137,18 @@ fields @timestamp, stage, route, payer, tx | filter type = "x402_funnel" | stats
 2. AWS credentials for the target account (and permission to run `cdk bootstrap` once).
 3. For `FACILITATOR=cdp`: a CDP account and API key, stored by the user in the Secrets Manager secret above.
 4. A wallet with about $1 of Base USDC, kept by the user, for the first self-payment that gets the endpoint indexed. Add it to `known-addresses.json`.
+5. An email address for the cost alert (`-c budgetEmail=…`).
+
+## Mainnet launch checklist
+
+Do these on the day of the switch to `eip155:8453`; they cannot be checked on testnet alone.
+
+- [ ] Deploy with `-c network=eip155:8453 -c facilitator=cdp` (or `payai`) and `-c budgetEmail=…`; confirm the `ApiUrl` output and `/health`.
+- [ ] Replay test (review item 4): send the same signed `PAYMENT-SIGNATURE` twice in a row and twice concurrently, on Sepolia and on the mainnet facilitator in use. Expected: the second request gets `402` and no content. The server has no own de-duplication; it relies on the EIP-3009 nonce, so a facilitator that answers a repeated settle with success would serve the content twice.
+- [ ] Self-pay once at the lowest price from the wallet in `known-addresses.json` (role `self_pay`) and confirm the USDC `Transfer` reaches `payTo` on Basescan and a `settle_ok` line with the same tx appears in CloudWatch Logs.
+- [ ] Bazaar listing (review item 5): after the self-payment, query the facilitator's `/discovery/resources` and confirm each route has exactly one entry. `resource.url` currently includes the query string, so one entry per date would mean the URL must be normalised.
+- [ ] Register with x402scan, agentic.market and x402-list, and record each registration.
+
+## Legal and tax
+
+The operator is responsible for tax reporting and regulatory compliance of the payments received. This repository and its maintainers give no tax or legal advice.

@@ -8,3 +8,4 @@ dist/
 /tmp/
 cdk.out/
 coverage/
+*.pem

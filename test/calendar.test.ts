@@ -49,12 +49,15 @@ describe("single date (2026 notice, 国办发明电〔2025〕7号)", () => {
     expect(kind("2023-01-03")).toBe("workday");
   });
 
-  it("2020 follows the annual notice; the later Spring Festival extension is not applied (see SOURCES.md)", () => {
-    expect(calendar.lookup("2020-01-30")).toMatchObject({ is_public_holiday: true, holiday_name: "春节" });
-    expect(calendar.lookup("2020-01-31")).toMatchObject({ kind: "workday", is_workday: true, weekday: 5 });
-    expect(calendar.lookup("2020-02-01")).toMatchObject({ kind: "makeup_workday", is_workday: true, weekday: 6 });
-    expect(calendar.lookup("2020-02-02")).toMatchObject({ kind: "weekend", is_workday: false, weekday: 7 });
-    expect(calendar.businessDays("2020-01-31", "2020-02-02")).toMatchObject({ workday_count: 2, workdays: ["2020-01-31", "2020-02-01"] });
+  it("2020 applies the national Spring Festival extension (国办发明电〔2020〕1号)", () => {
+    const ext = "https://www.gov.cn/zhengce/content/2020-01/27/content_5472352.htm";
+    for (const d of ["2020-01-30", "2020-01-31", "2020-02-01", "2020-02-02"]) {
+      expect(calendar.lookup(d)).toMatchObject({ kind: "public_holiday", is_workday: false, is_makeup_workday: false, holiday_name: "春节", source_url: ext });
+    }
+    expect(calendar.lookup("2020-02-03")).toMatchObject({ kind: "workday", is_workday: true, weekday: 1 });
+    expect(calendar.businessDays("2020-01-31", "2020-02-03")).toMatchObject({ workday_count: 1, workdays: ["2020-02-03"] });
+    // The other 2020 makeup workdays from the annual notice are unchanged.
+    expect(calendar.lookup("2020-01-19").kind).toBe("makeup_workday");
   });
 
   it("2027 single-day holidays", () => {
