@@ -20,7 +20,7 @@ import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
 export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
 export const REPO_URL = "https://github.com/walkley/x402-content-site";
-export const SITE_NAME = "x402 data APIs for agents";
+export const SITE_NAME = "China Workday Calendar and Package Vulnerability Advisories (x402 pay-per-call APIs)";
 
 const DATE_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
 

@@ -150,6 +150,34 @@ interface RequestMeta {
   settled?: boolean;
 }
 
+/**
+ * Copies x402Version, accepts and resource from the PAYMENT-REQUIRED header into the top of a JSON 402 body, so
+ * clients that only read the body (market402, x402 v1-style clients) see the same quote. The values come from the
+ * decoded header itself, so body and header cannot drift. Other body fields (error, price, how_to_pay...) are kept.
+ */
+async function quoteInBody(c: Context) {
+  const header = c.res.headers.get("payment-required");
+  if (c.res.status !== 402 || !header || !(c.res.headers.get("content-type") ?? "").startsWith("application/json")) return;
+  let quote: ReturnType<typeof decodePaymentRequiredHeader>;
+  try {
+    quote = decodePaymentRequiredHeader(header);
+  } catch {
+    return; // leave the 402 as the middleware built it; the funnel logs the undecodable header
+  }
+  const { x402Version, accepts, resource } = quote;
+  let body: unknown;
+  try {
+    body = await c.res.clone().json();
+  } catch {
+    body = {};
+  }
+  const rest = typeof body === "object" && body !== null && !Array.isArray(body) ? body : {};
+  const headers = new Headers(c.res.headers);
+  headers.delete("content-length");
+  c.res = undefined; // otherwise Hono's setter copies the old headers (incl. content-length) onto the new response
+  c.res = new Response(JSON.stringify({ x402Version, accepts, resource, ...rest }), { status: 402, headers });
+}
+
 function inputErrorResponse(c: Context, e: InputError) {
   return c.json({ error: e.code, message: e.message }, e.status);
 }
@@ -321,6 +349,7 @@ export function createApp(cfg: AppConfig) {
     } finally {
       if (paymentHeader) inflight.delete(paymentHeader);
     }
+    await quoteInBody(c);
     const status = c.res.status;
     if (status === 402) {
       let reason: string | undefined;
