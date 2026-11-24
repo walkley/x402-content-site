@@ -1035,3 +1035,66 @@ describe("SEC EDGAR endpoints", () => {
     }
   });
 });
+
+describe("every free pre-payment rejection carries a copyable example that is quoted 402", () => {
+  const ECOSYSTEM_LIST = ["npm", "PyPI", "Go", "crates.io", "Maven"];
+  it.each([
+    ["GET", "/cn/workday?date=", undefined, 400, "invalid_date"],
+    ["GET", "/cn/workday?date=2026-02-30", undefined, 400, "invalid_date"],
+    ["GET", "/cn/workday?day=2026-02-14", undefined, 400, "unknown_param"],
+    ["GET", "/cn/workday?date=2030-01-01", undefined, 404, "year_not_covered"],
+    ["GET", "/cn/business-days?from=2026-01-05", undefined, 400, "invalid_date"],
+    ["GET", "/cn/business-days?start=2026-01-05&end=2026-01-16", undefined, 400, "unknown_param"],
+    ["GET", "/cn/business-days?from=2026-01-01&to=2027-01-02", undefined, 400, "range_too_large"],
+    ["GET", "/cn/business-days?from=2026-02-02&to=2026-02-01", undefined, 400, "invalid_range"],
+    ["GET", "/deps/advisories?ecosystem=rubygems&name=rails&version=7.0.0", undefined, 400, "invalid_ecosystem"],
+    ["GET", "/deps/advisories?ecosystem=npm&version=1.0.0", undefined, 400, "invalid_name"],
+    ["GET", "/deps/advisories?ecosystem=npm&name=lodash", undefined, 400, "invalid_version"],
+    ["POST", "/deps/advisories/batch", "not json", 400, "invalid_body"],
+    ["POST", "/deps/advisories/batch", '{"packages":[]}', 400, "invalid_body"],
+    ["POST", "/deps/advisories/batch", JSON.stringify({ packages: [{ ecosystem: "x", name: "a", version: "1" }] }), 400, "invalid_ecosystem"],
+    ["POST", "/deps/advisories/batch", JSON.stringify({ packages: Array.from({ length: 51 }, () => ({ ecosystem: "npm", name: "a", version: "1" })) }), 400, "batch_too_large"],
+    ["GET", "/sec/insider-trades?ticker=AAPL&cik=320193", undefined, 400, "invalid_arguments"],
+    ["GET", "/sec/insider-trades?ticker=A%20B", undefined, 400, "invalid_ticker"],
+    ["GET", "/sec/insider-trades?cik=x", undefined, 400, "invalid_cik"],
+    ["GET", "/sec/latest-filings?ticker=AAPL&limit=99", undefined, 400, "invalid_limit"],
+    ["GET", "/sec/latest-filings?ticker=AAPL&form=%3F%3F", undefined, 400, "invalid_form"],
+  ])("%s %s -> %i %s with example", async (method, path, body, status, code) => {
+    const { app } = setup({ verify: true, settle: true }, new OsvClient(fakeOsvFetch().fn));
+    const headers = { ...UA, "content-type": "application/json" };
+    const res = await app.request(`http://localhost${path}`, { method, body, headers });
+    expect(res.status).toBe(status);
+    expect(res.headers.get("payment-required")).toBeNull();
+    const json = await res.json();
+    expect(json).toMatchObject({ error: code });
+    const route = path.split("?")[0];
+    expect(json.example).toMatchObject({ method, url: expect.stringMatching(new RegExp(`^http://localhost${route.replace(/\//g, "\\/")}`)) });
+    expect(Object.keys(json.example.allowed).length).toBeGreaterThan(0);
+    if (route.startsWith("/deps/")) expect(json.example.allowed.ecosystem).toEqual(ECOSYSTEM_LIST);
+    if (method === "POST") expect(json.example.body.packages.length).toBeGreaterThan(0);
+    else expect(new URL(json.example.url).search.length).toBeGreaterThan(1); // not a bare request: it passes validation
+
+    // The example itself, sent without a payment, is validated (non-bare) and quoted.
+    const again = await app.request(json.example.url, {
+      method,
+      body: json.example.body === undefined ? undefined : JSON.stringify(json.example.body),
+      headers,
+    });
+    expect(again.status).toBe(402);
+    expect(again.headers.get("payment-required")).toBeTruthy();
+  });
+
+  it("uses PUBLIC_BASE_URL for the example url when set", async () => {
+    const app = createApp({
+      network: NETWORK,
+      payTo: PAY_TO,
+      facilitatorKind: "x402org",
+      facilitatorUrl: "http://unused",
+      facilitator: new FakeFacilitator({ verify: true, settle: true }),
+      funnel: new FunnelLogger(() => {}),
+      publicBaseUrl: "https://api.example.test",
+    });
+    const res = await app.request("/cn/workday?date=bad", { headers: UA });
+    expect((await res.json()).example.url).toBe("https://api.example.test/cn/workday?date=2026-10-08");
+  });
+});
