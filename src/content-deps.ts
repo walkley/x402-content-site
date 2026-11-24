@@ -17,15 +17,16 @@ export const BATCH_DESCRIPTION =
   `e.g. a whole lockfile: $0.02 per call, $0.0004 per package. Same fields as GET /deps/advisories for each package, in request order.`;
 
 const PACKAGE_PROPS = {
-  ecosystem: { type: "string", enum: [...ECOSYSTEMS], description: "Package ecosystem (case-insensitive on input)" },
+  ecosystem: { type: "string", enum: [...ECOSYSTEMS], description: "Package ecosystem (case-insensitive on input)", examples: ["npm"] },
   name: {
     type: "string",
     minLength: 1,
     maxLength: 214,
     description:
       "Package name exactly as published; matching is case-sensitive for npm (lodash, not Lodash; legacy names such as JSONStream keep their case). Maven uses groupId:artifactId, Go the module path. PyPI names are normalised.",
+    examples: ["lodash"],
   },
-  version: { type: "string", minLength: 1, maxLength: 128, description: "Exact version, e.g. 4.17.20" },
+  version: { type: "string", minLength: 1, maxLength: 128, description: "Exact version, e.g. 4.17.20", examples: ["4.17.20"] },
 };
 
 export const ADVISORIES_INPUT_SCHEMA = {

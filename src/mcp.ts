@@ -69,11 +69,15 @@ export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
     inputSchema: {
       type: "object",
       properties: {
-        date: { ...DATE, description: "One date (YYYY-MM-DD). Do not combine with from/to." },
+        date: { ...DATE, description: "One date (YYYY-MM-DD). Do not combine with from/to.", examples: ["2026-10-08"] },
+        // No per-property examples on from/to: a prober that merges every property's examples would send
+        // {date, from, to}, which the tool refuses. The object-level examples below show the range form.
         from: { ...DATE, description: "Range start, inclusive (YYYY-MM-DD)" },
         to: { ...DATE, description: "Range end, inclusive (YYYY-MM-DD)" },
       },
       additionalProperties: false,
+      // date and from/to exclude each other, so whole valid argument objects are listed too (JSON Schema `examples`).
+      examples: [{ date: "2026-10-08" }, { from: "2026-10-01", to: "2026-10-31" }],
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
