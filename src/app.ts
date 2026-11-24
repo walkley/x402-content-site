@@ -25,7 +25,22 @@ import {
   DEPS_SERVICE_NAME,
   DEPS_TAGS,
 } from "./content-deps.js";
+import {
+  INSIDER_TRADES_DESCRIPTION,
+  INSIDER_TRADES_EXAMPLE_INPUT,
+  INSIDER_TRADES_EXAMPLE_OUTPUT,
+  INSIDER_TRADES_INPUT_SCHEMA,
+  INSIDER_TRADES_OUTPUT_SCHEMA,
+  LATEST_FILINGS_DESCRIPTION,
+  LATEST_FILINGS_EXAMPLE_INPUT,
+  LATEST_FILINGS_EXAMPLE_OUTPUT,
+  LATEST_FILINGS_INPUT_SCHEMA,
+  LATEST_FILINGS_OUTPUT_SCHEMA,
+  SEC_SERVICE_NAME,
+  SEC_TAGS,
+} from "./content-sec.js";
 import { calendar } from "./data.js";
+import { SecClient, parseCompanyQuery, parseFilingsQuery, secUserAgent } from "./sec.js";
 import { FunnelLogger, type FunnelEvent } from "./funnel.js";
 import { MCP_SRC, PAID_MCP_PATH, ipHashOf, mcpHandler, mcpManifest, mcpRequestLog } from "./mcp.js";
 import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
@@ -44,6 +59,7 @@ import {
   BUSINESS_DAYS_INPUT_SCHEMA,
   BUSINESS_DAYS_OUTPUT_SCHEMA,
   FAVICON_ICO,
+  ICON_PNG,
   SERVICE_NAME,
   TAGS,
   WORKDAY_DESCRIPTION,
@@ -64,6 +80,8 @@ export const WORKDAY_PRICE = "$0.003";
 export const BUSINESS_DAYS_PRICE = "$0.005";
 export const ADVISORIES_PRICE = "$0.005";
 export const BATCH_PRICE = "$0.02";
+export const INSIDER_TRADES_PRICE = "$0.003";
+export const LATEST_FILINGS_PRICE = "$0.003";
 
 export interface AppConfig {
   network: Network;
@@ -79,6 +97,8 @@ export interface AppConfig {
   funnel?: FunnelLogger;
   /** OSV.dev client (tests inject one with a fake fetch). */
   osv?: OsvClient;
+  /** SEC EDGAR client (tests inject one with a fake fetch). */
+  sec?: SecClient;
   /** Per-attempt limit on the facilitator /supported sync. Default FACILITATOR_INIT_TIMEOUT_MS. */
   facilitatorInitTimeoutMs?: number;
   /** Time from request start by which verify/settle must have answered. Default REQUEST_DEADLINE_MS. */
@@ -102,6 +122,12 @@ export const FACILITATOR_INIT_TIMEOUT_MS = 5_000;
  * function timeout changes. A settle cut off here may still land on chain (same as a Lambda timeout would).
  */
 export const REQUEST_DEADLINE_MS = 23_000;
+/**
+ * Time kept for settlement after the SEC calls: they must finish by request start + 23 s minus
+ * this, so a slow SEC fails as a 502 (not charged) instead of leaving settlement no time. PayAI settles in a few
+ * seconds; shortcut: fixed reserve, upgrade if settle latency is measured above it.
+ */
+export const SETTLE_RESERVE_MS = 8_000;
 
 type Env = Record<string, string | undefined>;
 
@@ -168,12 +194,18 @@ async function isBareRequest(c: Context, method: "GET" | "POST") {
   }
 }
 
+const insiderQuery = (c: Context) => parseCompanyQuery({ ticker: c.req.query("ticker"), cik: c.req.query("cik") });
+const filingsQuery = (c: Context) =>
+  parseFilingsQuery({ ticker: c.req.query("ticker"), cik: c.req.query("cik"), form: c.req.query("form"), limit: c.req.query("limit") });
+
 /** Paid routes and their free pre-payment input validation. */
 const PAID_ROUTES: Record<string, { method: "GET" | "POST"; validate: (c: Context) => unknown }> = {
   "/cn/workday": { method: "GET", validate: (c) => calendar.lookup(c.req.query("date")) },
   "/cn/business-days": { method: "GET", validate: (c) => calendar.validateRange(c.req.query("from"), c.req.query("to")) },
   "/deps/advisories": { method: "GET", validate: advisoryQuery },
   "/deps/advisories/batch": { method: "POST", validate: batchQuery },
+  "/sec/insider-trades": { method: "GET", validate: insiderQuery },
+  "/sec/latest-filings": { method: "GET", validate: filingsQuery },
 };
 
 interface RequestMeta {
@@ -226,6 +258,8 @@ const isMcpQuote = (c: Context) => (c.env as { mcpQuote?: symbol } | undefined)?
 export function createApp(cfg: AppConfig) {
   const funnel = cfg.funnel ?? new FunnelLogger();
   const osv = cfg.osv ?? new OsvClient();
+  // Deployments always set PUBLIC_BASE_URL (infra); the fallback only matters for local runs.
+  const sec = cfg.sec ?? new SecClient(secUserAgent(cfg.publicBaseUrl ?? "http://localhost"));
   // Correlates x402 hook callbacks (which only see the request context) with the HTTP request.
   // Keyed by the payment header string; entries are removed when the request finishes.
   const inflight = new Map<string, RequestMeta>();
@@ -292,7 +326,7 @@ export function createApp(cfg: AppConfig) {
   const originOf = (ctx: HTTPRequestContext) => cfg.publicBaseUrl ?? new URL(ctx.adapter.getUrl()).origin;
   /** iconUrl, and a 402 body that a plain-fetch agent (which never decodes PAYMENT-REQUIRED) can act on. */
   const listing = (price: string, request: { method: "GET" | "POST"; path: string; body?: unknown }, response: unknown) => ({
-    ...(cfg.publicBaseUrl ? { iconUrl: `${cfg.publicBaseUrl}/favicon.ico` } : {}),
+    ...(cfg.publicBaseUrl ? { iconUrl: `${cfg.publicBaseUrl}/icon.png` } : {}),
     unpaidResponseBody: (ctx: HTTPRequestContext) => {
       const base = originOf(ctx);
       return {
@@ -372,6 +406,40 @@ export function createApp(cfg: AppConfig) {
         input: BATCH_EXAMPLE_INPUT,
         inputSchema: BATCH_INPUT_SCHEMA,
         output: { example: BATCH_EXAMPLE_OUTPUT, schema: BATCH_OUTPUT_SCHEMA },
+      }),
+    },
+    "GET /sec/insider-trades": {
+      accepts: accepts(INSIDER_TRADES_PRICE),
+      ...listing(
+        INSIDER_TRADES_PRICE,
+        { method: "GET", path: `/sec/insider-trades?${new URLSearchParams(INSIDER_TRADES_EXAMPLE_INPUT)}` },
+        INSIDER_TRADES_EXAMPLE_OUTPUT,
+      ),
+      description: INSIDER_TRADES_DESCRIPTION,
+      mimeType: "application/json",
+      serviceName: SEC_SERVICE_NAME,
+      tags: SEC_TAGS,
+      extensions: declareDiscoveryExtension({
+        input: INSIDER_TRADES_EXAMPLE_INPUT,
+        inputSchema: INSIDER_TRADES_INPUT_SCHEMA,
+        output: { example: INSIDER_TRADES_EXAMPLE_OUTPUT, schema: INSIDER_TRADES_OUTPUT_SCHEMA },
+      }),
+    },
+    "GET /sec/latest-filings": {
+      accepts: accepts(LATEST_FILINGS_PRICE),
+      ...listing(
+        LATEST_FILINGS_PRICE,
+        { method: "GET", path: `/sec/latest-filings?${new URLSearchParams(LATEST_FILINGS_EXAMPLE_INPUT)}` },
+        LATEST_FILINGS_EXAMPLE_OUTPUT,
+      ),
+      description: LATEST_FILINGS_DESCRIPTION,
+      mimeType: "application/json",
+      serviceName: SEC_SERVICE_NAME,
+      tags: SEC_TAGS,
+      extensions: declareDiscoveryExtension({
+        input: LATEST_FILINGS_EXAMPLE_INPUT,
+        inputSchema: LATEST_FILINGS_INPUT_SCHEMA,
+        output: { example: LATEST_FILINGS_EXAMPLE_OUTPUT, schema: LATEST_FILINGS_OUTPUT_SCHEMA },
       }),
     },
   };
@@ -472,8 +540,9 @@ export function createApp(cfg: AppConfig) {
       log({ stage: "402_returned", ...meta, status, reason });
     } else if (status < 400 && meta.settled) {
       log({ stage: "content_returned", ...meta, status });
-    } else if (status >= 500) {
-      // Upstream or facilitator failure after verification: settlement is skipped, nothing is charged.
+    } else if (status >= 500 || (status >= 400 && meta.verified)) {
+      // Upstream or facilitator failure after verification, or a ticker/CIK SEC does not know: settlement is skipped,
+      // nothing is charged.
       log({ stage: "handler_error", ...meta, status, reason: c.get("failure") ?? `http ${status}` });
     }
   };
@@ -484,6 +553,8 @@ export function createApp(cfg: AppConfig) {
     businessDaysPrice: BUSINESS_DAYS_PRICE,
     advisoriesPrice: ADVISORIES_PRICE,
     batchPrice: BATCH_PRICE,
+    insiderTradesPrice: INSIDER_TRADES_PRICE,
+    latestFilingsPrice: LATEST_FILINGS_PRICE,
     freePerIpDaily: cfg.quota?.perIpDaily ?? FREE_PER_IP_DAILY,
   };
   const freeLimits = { perIpDaily: prices.freePerIpDaily, globalDaily: cfg.quota?.globalDaily ?? FREE_GLOBAL_DAILY };
@@ -531,9 +602,10 @@ export function createApp(cfg: AppConfig) {
   app.get("/favicon.ico", (c) =>
     c.body(FAVICON_ICO, 200, { "Content-Type": "image/x-icon", "Cache-Control": "public, max-age=86400" }),
   );
+  app.get("/icon.png", (c) => c.body(ICON_PNG, 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" }));
   app.get("/.well-known/mcp.json", (c) => c.json(mcpManifest(baseUrl(c), { ...freeLimits, prices })));
 
-  // MCP endpoints: outside /cn/* and /deps/*, so the payment middleware never runs on them. Over the quota (and always
+  // MCP endpoints: outside /cn/*, /deps/* and /sec/*, so the payment middleware never runs on them. Over the quota (and always
   // on /paid/mcp) a tool call carries the paid route's own 402 quote, fetched in-process from that route and decoded.
   const quote = async (url: string): Promise<unknown> => {
     try {
@@ -557,8 +629,17 @@ export function createApp(cfg: AppConfig) {
 
   // Batch bodies are at most 50 small objects; refuse anything larger before parsing.
   app.use("/deps/advisories/batch", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
+  // /sec/* before anything else (and so before any payment is verified): only GET on the two literal paths. A HEAD or
+  // a percent-encoded path such as /sec/insider%2Dtrades would otherwise reach the handler (Hono routes HEAD as GET and
+  // matches decoded paths) through a request API Gateway may not count against the SEC route's throttle.
+  app.use("/sec/*", async (c, next) => {
+    const raw = new URL(c.req.url).pathname;
+    if (raw !== "/sec/insider-trades" && raw !== "/sec/latest-filings") return c.json({ error: "not_found" }, 404);
+    if (c.req.method !== "GET") return c.json({ error: "method_not_allowed", message: "use GET" }, 405, { Allow: "GET" });
+    return next();
+  });
   const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
-  for (const prefix of ["/cn/*", "/deps/*"]) {
+  for (const prefix of ["/cn/*", "/deps/*", "/sec/*"]) {
     app.use(prefix, (_c, next) => deadline.run(Date.now() + requestDeadlineMs, next));
     app.use(prefix, funnelAndValidate);
     app.use(prefix, facilitatorGate);
@@ -570,8 +651,13 @@ export function createApp(cfg: AppConfig) {
     c.json({ ...calendar.businessDays(c.req.query("from"), c.req.query("to")), data_updated: calendar.dataUpdated }),
   );
 
-  // A handler status >= 400 makes the payment middleware skip settlement, so an OSV.dev failure is never charged.
+  // A handler status >= 400 makes the payment middleware skip settlement, so an OSV.dev or SEC failure is never
+  // charged; nor is a ticker or CIK that SEC does not know (404, found only after payment since checking costs a call).
   const upstreamFailure = (c: Context, e: unknown) => {
+    if (e instanceof InputError) {
+      c.set("failure", `not_found: ${e.code}`);
+      return c.json({ error: e.code, message: `${e.message}. You were not charged.` }, e.status);
+    }
     if (!(e instanceof UpstreamError)) throw e;
     c.set("failure", e.message);
     return c.json({ error: "upstream_unavailable", message: `${e.message}. You were not charged; retry later.` }, 502);
@@ -587,6 +673,25 @@ export function createApp(cfg: AppConfig) {
     try {
       const results = await osv.queryMany(await batchQuery(c));
       return c.json({ count: results.length, vulnerable_count: results.filter((r) => r.vulnerable).length, results });
+    } catch (e) {
+      return upstreamFailure(c, e);
+    }
+  });
+
+  const secDeadline = () => {
+    const end = deadline.getStore();
+    return end === undefined ? undefined : end - SETTLE_RESERVE_MS;
+  };
+  app.get("/sec/insider-trades", async (c) => {
+    try {
+      return c.json(await sec.insiderTrades(insiderQuery(c), secDeadline()));
+    } catch (e) {
+      return upstreamFailure(c, e);
+    }
+  });
+  app.get("/sec/latest-filings", async (c) => {
+    try {
+      return c.json(await sec.latestFilings(filingsQuery(c), secDeadline()));
     } catch (e) {
       return upstreamFailure(c, e);
     }

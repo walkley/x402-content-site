@@ -1,0 +1,101 @@
+{
+  "insider_trades": {
+    "issuer": {
+      "cik": "0000320193",
+      "name": "Apple Inc.",
+      "tickers": [
+        "AAPL"
+      ]
+    },
+    "filings_checked": 4,
+    "transaction_count": 6,
+    "transactions": [
+      {
+        "accession_number": "0001140361-26-044952",
+        "form": "4",
+        "filing_date": "2026-11-19",
+        "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126044952/0001140361-26-044952-index.htm",
+        "reporting_owners": [
+          {
+            "name": "Newstead Jennifer",
+            "cik": "0001780525",
+            "is_director": false,
+            "is_officer": true,
+            "officer_title": "SVP, GC and Government Affairs",
+            "is_ten_percent_owner": false,
+            "is_other": false
+          }
+        ],
+        "rule_10b5_1": true,
+        "table": "non_derivative",
+        "security": "Common Stock",
+        "transaction_date": "2026-11-17",
+        "code": "S",
+        "code_description": "Open market or private sale",
+        "acquired_disposed": "D",
+        "shares": 2398,
+        "price_per_share": 352.77,
+        "shares_owned_after": 25200,
+        "ownership": "D",
+        "underlying_security": null
+      }
+    ],
+    "data_fetched_at": "2026-11-24T19:00:00.000Z",
+    "queried_at": "2026-11-24T19:00:00.000Z"
+  },
+  "latest_filings": {
+    "issuer": {
+      "cik": "0000320193",
+      "name": "Apple Inc.",
+      "tickers": [
+        "AAPL"
+      ]
+    },
+    "form": "8-K",
+    "count": 2,
+    "filings": [
+      {
+        "accession_number": "0001140361-26-042798",
+        "form": "8-K",
+        "filing_date": "2026-11-09",
+        "report_date": "2026-11-05",
+        "accepted_at": "2026-11-09T21:30:40.000Z",
+        "items": [
+          {
+            "item": "8.01",
+            "title": "Other Events"
+          },
+          {
+            "item": "9.01",
+            "title": "Financial Statements and Exhibits"
+          }
+        ],
+        "description": null,
+        "document_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/ef20085077_8k.htm",
+        "index_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/0001140361-26-042798-index.htm"
+      },
+      {
+        "accession_number": "0000320193-26-000024",
+        "form": "8-K",
+        "filing_date": "2026-11-02",
+        "report_date": "2026-11-02",
+        "accepted_at": "2026-11-02T21:30:23.000Z",
+        "items": [
+          {
+            "item": "2.02",
+            "title": "Results of Operations and Financial Condition"
+          },
+          {
+            "item": "9.01",
+            "title": "Financial Statements and Exhibits"
+          }
+        ],
+        "description": "8-K",
+        "document_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/aapl-20261102.htm",
+        "index_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/0000320193-26-000024-index.htm"
+      }
+    ],
+    "data_fetched_at": "2026-11-24T19:00:00.000Z",
+    "queried_at": "2026-11-24T19:00:00.000Z"
+  }
+}

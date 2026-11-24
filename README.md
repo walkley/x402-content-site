@@ -1,9 +1,10 @@
 # x402-content-site
 
-Pay-per-call data APIs for AI agents, paid in USDC over [x402](https://www.x402.org). Two products:
+Pay-per-call data APIs for AI agents, paid in USDC over [x402](https://www.x402.org). Three products:
 
 - **China workday calendar:** is this date a working day in mainland China? It applies the State Council's holiday notices, including weekend makeup workdays (调休补班), which generic holiday APIs get wrong.
 - **Package vulnerability advisories:** is this package version safe to install? Which known advisories (CVE/GHSA/PYSEC/GO/RUSTSEC) affect one exact version of an npm, PyPI, Go, crates.io or Maven package, with CVSS, affected ranges and fixed versions. Data from [OSV.dev](https://osv.dev).
+- **SEC EDGAR insider trades and filings:** recent insider trading (Form 4: insider, role, date, code, shares, price, holdings after) and the latest SEC filings (8-K with item titles, 10-K, 10-Q...) of a US public company by ticker or CIK. Data from [SEC EDGAR](https://www.sec.gov/edgar); not affiliated with or endorsed by the SEC.
 
 The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs on AWS Lambda (Node 22) behind an Amazon API Gateway HTTP API, defined with AWS CDK in `infra/`. Locally it runs as a plain Node server.
 
@@ -15,10 +16,12 @@ The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs 
 | `GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD` | $0.005 | `calendar_days`, `workday_count`, `workdays[]` (inclusive range, at most 366 days, may cross years) |
 | `GET /deps/advisories?ecosystem=npm\|PyPI\|Go\|crates.io\|Maven&name=…&version=…` | $0.005 | `vulnerable`, `advisory_count`, `advisories[]` (`id`, `aliases`, `summary`, `severity.level`, `severity.cvss[]`, `affected[].ranges`, `fixed_versions`, `published`, `modified`, `references`, `url`, `license`), `data_fetched_at`, `queried_at` |
 | `POST /deps/advisories/batch` with `{"packages":[{ecosystem,name,version}, …]}` (1–50) | $0.02 | `count`, `vulnerable_count`, `results[]` in request order, each shaped like the single query |
+| `GET /sec/insider-trades?ticker=AAPL` (or `cik=320193`) | $0.003 | `issuer`, `filings_checked`, `transactions[]` from the 4 most recent Form 4 / 4/A filings (`reporting_owners[]` with role and officer title, `transaction_date`, `code`, `code_description`, `acquired_disposed`, `shares`, `price_per_share`, `shares_owned_after`, `ownership`, `rule_10b5_1`, `filing_url`), `data_fetched_at`, `source` |
+| `GET /sec/latest-filings?ticker=AAPL&form=8-K&limit=20` | $0.003 | `issuer`, `count`, `filings[]` newest first (`form`, `filing_date`, `report_date`, `accepted_at`, 8-K `items[]` with titles, `document_url`, `index_url`); `form` and `limit` (1–50, default 20) are optional |
 | `GET /` | free | Human preview page: description, schema, examples, data update date, source links |
 | `GET /llms.txt` | free | Agent-oriented summary |
 | `GET /openapi.json`, `GET /.well-known/openapi.json` | free | OpenAPI 3.1 with full input/output schemas and examples, `x-payment-info` on each paid operation, `x-discovery.llmsTxtUrl` |
-| `GET /favicon.ico` | free | Service icon, also sent as the x402 `iconUrl` |
+| `GET /favicon.ico`, `GET /icon.png` | free | Service icon; the PNG (the same image) is sent as the x402 `iconUrl`, because CDP's listed icon formats do not include ICO |
 | `GET /health` | free | Liveness |
 | `POST /mcp` | free quota, then x402 | MCP server (Streamable HTTP, stateless), tools `cn_workday_check` and `package_advisories`, see "Free MCP endpoint" |
 | `POST /paid/mcp` | x402 (pay the linked URL) | The same MCP server without the free quota: every tool call returns a payment link to the paid route, see "Paid MCP endpoint" |
@@ -68,11 +71,21 @@ claude mcp add --transport http cn-calendar https://<origin>/mcp
 - Only the queried package's `affected` entries are returned (a GHSA record for lodash also lists lodash-es and others).
 - All routes send CORS headers (`Access-Control-Allow-Origin: *`, `Access-Control-Expose-Headers: PAYMENT-REQUIRED, PAYMENT-RESPONSE`, preflight allows `PAYMENT-SIGNATURE`/`X-PAYMENT`), so browser-based agents can read the payment headers.
 
+### How the SEC endpoints use SEC EDGAR
+
+- SEC is called only after the payment is verified, with `User-Agent: x402-content-site <PUBLIC_BASE_URL>` as SEC's [fair-access policy](https://www.sec.gov/os/accessing-edgar-data) requires. The policy's example is a company name plus an e-mail; we name the site instead. SEC answers `403` to a User-Agent containing `github` (tested 2026-11-24), so the repository URL is not used.
+- Calls per paid request: the ticker list (`www.sec.gov/files/company_tickers.json`, cached 24 h), the company's submissions JSON (`data.sec.gov/submissions/CIK##########.json`, cached 10 min, newest 300 filings kept), and for insider trades the raw XML of the 4 most recent Form 4 filings (cached by accession number until evicted: a filed document never changes). That is at most **6 SEC calls** on a cold container and usually 0–1 on a warm one; latest filings needs at most 2. Memory per container stays bounded: at most 100 companies' submissions and 1,000 parsed Form 4 documents, about 50 MB with every cache full (measured).
+- Rate: each container spaces its SEC calls at 4 per second. That alone does not bound the total (10 containers × 4/s = 40/s). The bound is the API Gateway route `ANY /sec/{proxy+}`, throttled to 1 rps with burst 1: every request under `/sec`, whatever its method or path spelling (`HEAD`, `/sec/insider%2Dtrades`), counts against it instead of `$default`'s 10 rps. So at most about 1 paid request × 6 SEC calls = **6 SEC calls per second** reach SEC from the whole API, below its 10. The app also answers anything other than `GET` on the literal paths `/sec/insider-trades` and `/sec/latest-filings` with a free `405`/`404` before payment is verified. Cost of burst 1: a client that sends its paid retry less than a second after the unpaid 402 gets `429` from API Gateway and must retry; nothing is charged.
+- Time: each SEC call has its own 5 s timeout. All calls of one request must finish by the earlier of 12 s after the handler starts and 15 s after the request starts (the 23 s request deadline minus 8 s kept for settlement). Past that the request fails as `502`, before settlement, so it is not charged.
+- **Not charged:** an SEC timeout or error, including a `403`/`429`, is `502 upstream_unavailable`; a ticker or CIK SEC does not know is `404` (checked after payment, because checking costs an SEC call). Neither is settled; the funnel logs `handler_error`. **Charged:** a known company with no Form 4 among its latest 200 filings returns `200` with an empty `transactions` list; that is an answer, and it is settled.
+- After a deploy, run `scripts/sec-lambda-probe.sh` once: it invokes the API function directly (IAM, not over HTTP) and reports whether `data.sec.gov` and `www.sec.gov` answer `200` from the function's egress IP.
+
 ### Data sources and licenses
 
 | Data | Source | License |
 |---|---|---|
 | China holidays | State Council notices on www.gov.cn, see `data/cn-holidays/SOURCES.md` | Official administrative documents, excluded from copyright by Art. 5 of the PRC Copyright Law |
+| SEC insider trades and filings | [SEC EDGAR](https://www.sec.gov/edgar) APIs and filing archives | U.S. government public data, no copyright restriction on redistribution. Responses name SEC EDGAR as the source and say the service is not affiliated with or endorsed by the SEC. Not investment advice. |
 | Package advisories | [OSV.dev](https://osv.dev) API and aggregation | The OSV.dev software is Apache-2.0, and its maintainers say it can be used in commercial products without restriction ([google/osv.dev#1884](https://github.com/google/osv.dev/issues/1884)). That answer covers the software, not the data. The data keeps each source's license, listed below. All of them (CC-BY 4.0, CC0 1.0, Apache-2.0) allow commercial redistribution. |
 | ↳ `GHSA-*` | GitHub Advisory Database | CC-BY 4.0 |
 | ↳ `PYSEC-*` | PyPI Advisory Database | CC-BY 4.0 |
@@ -218,7 +231,7 @@ fields @timestamp, type, method, tool, outcome, free_call_n, stage, route, src |
 | `request` | A paid route was called. Carries `status` and `reason: rejected_input: …` if input validation refused it. |
 | `402_returned` | The response was a 402 (no payment, or the payment was refused). `reason` is the x402 error. |
 | `payment_header_received` | The request carried `PAYMENT-SIGNATURE` / `X-PAYMENT`. |
-| `handler_error` | The handler failed after verification (OSV.dev down, facilitator error): status ≥ 500, not settled, not charged. |
+| `handler_error` | The handler failed after verification (OSV.dev or SEC down, facilitator error: status ≥ 500; unknown ticker or CIK: 404): not settled, not charged. |
 | `verify_ok` / `verify_fail` | Facilitator verification result. `verify_fail` has `reason`, also for headers rejected before reaching the facilitator. |
 | `settle_ok` / `settle_fail` | Settlement result. `settle_ok` has `tx`; `settle_fail` has `reason`. |
 | `content_returned` | Paid content was sent after a successful settlement. |
