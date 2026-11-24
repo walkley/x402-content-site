@@ -85,6 +85,8 @@ export interface AppConfig {
   requestDeadlineMs?: number;
   /** Free MCP quota. Unset: no free tier, every MCP tool call gets the paid hint. */
   quota?: FreeQuota;
+  /** Origins allowed to call /mcp from a browser. Default none: a request with an Origin header gets 403. */
+  mcpAllowedOrigins?: string[];
 }
 
 /**
@@ -123,7 +125,9 @@ export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig 
     payTo,
     facilitatorKind: kind,
     publicBaseUrl: env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || undefined,
-    quota: quotaFromEnv(env),
+    quota: quotaFromEnv(env, fetchSecret),
+    // Comma-separated browser origins allowed to call /mcp; empty (the default) refuses every request with Origin.
+    mcpAllowedOrigins: (env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean),
   };
   if (kind === "cdp") {
     return { ...base, facilitatorUrl: CDP_FACILITATOR_URL, facilitatorConfig: cdpFacilitatorConfig(cdpCredentialLoader(env, fetchSecret)) };
@@ -481,16 +485,26 @@ export function createApp(cfg: AppConfig) {
   });
 
   // Browser-based agents must be able to read the x402 headers and send the payment header cross-origin.
-  app.use(
-    "*",
-    cors({
-      origin: "*",
-      allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "X-PAYMENT", "MCP-Protocol-Version"],
-      exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
-      maxAge: 86400,
-    }),
-  );
+  const publicCors = cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "X-PAYMENT"],
+    exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
+    maxAge: 86400,
+  });
+  app.use("*", (c, next) => (c.req.path === "/mcp" ? next() : publicCors(c, next)));
+
+  // /mcp: Streamable HTTP requires validating Origin (DNS rebinding, and a web page spending its visitors' free quota).
+  // MCP clients such as Claude Code send no Origin. A listed origin gets CORS for that origin only, never "*".
+  const mcpOrigins = cfg.mcpAllowedOrigins ?? [];
+  app.use("/mcp", async (c, next) => {
+    const origin = c.req.header("origin");
+    if (origin !== undefined && !mcpOrigins.includes(origin)) {
+      return c.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `Origin ${origin} is not allowed` } }, 403);
+    }
+    return next();
+  });
+  app.use("/mcp", cors({ origin: mcpOrigins, allowMethods: ["POST", "OPTIONS"], allowHeaders: ["Content-Type", "MCP-Protocol-Version"], maxAge: 86400 }));
 
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
@@ -550,7 +564,11 @@ export function createApp(cfg: AppConfig) {
     }
   });
 
-  return Object.assign(app, { initFacilitator });
+  /** Loads the free quota's HMAC key during Lambda init; never throws (MCP calls fail closed until it loads). */
+  const initQuota = async () => {
+    await cfg.quota?.init?.();
+  };
+  return Object.assign(app, { initFacilitator, initQuota });
 }
 
 /** Rejects after ms; the abandoned promise keeps running and its result is ignored. */

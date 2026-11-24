@@ -119,6 +119,29 @@ describe("free MCP quota table", () => {
     });
     expect(() => stack({ freeGlobalDaily: -1 }, "BadQuota")).toThrow(/freeGlobalDaily/);
   });
+
+  it("generates the HMAC key secret, readable only by the API function, and passes its ARN", () => {
+    const secretId = logicalId("AWS::SecretsManager::Secret", "QuotaHmacKey");
+    template.resourceCountIs("AWS::SecretsManager::Secret", 1);
+    template.hasResourceProperties("AWS::SecretsManager::Secret", {
+      GenerateSecretString: { PasswordLength: 64, ExcludePunctuation: true },
+    });
+    expect(template.findResources("AWS::SecretsManager::Secret")[secretId].Properties.SecretString).toBeUndefined(); // no value in the template
+    const roleId = (template.findResources("AWS::Lambda::Function")[apiFnId].Properties.Role["Fn::GetAtt"] as string[])[0];
+    const sm = Object.values(template.findResources("AWS::IAM::Policy")).flatMap((p) =>
+      (p.Properties.PolicyDocument.Statement as { Action: string | string[]; Resource: unknown }[])
+        .filter((st) => [st.Action].flat().some((a) => a.startsWith("secretsmanager:")))
+        .map((st) => ({ roles: p.Properties.Roles, st })),
+    );
+    expect(sm).toHaveLength(1);
+    expect(sm[0].roles).toEqual([{ Ref: roleId }]);
+    expect([sm[0].st.Action].flat().sort()).toEqual(["secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue"]);
+    expect(sm[0].st.Resource).toEqual({ Ref: secretId });
+    template.resourceCountIs("AWS::SecretsManager::ResourcePolicy", 0);
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ QUOTA_HMAC_SECRET_ARN: { Ref: secretId } }) },
+    });
+  });
 });
 
 describe("cost breaker", () => {

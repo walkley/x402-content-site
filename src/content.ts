@@ -16,7 +16,7 @@ import {
   OSV_ATTRIBUTION,
 } from "./content-deps.js";
 import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
-import { mcpAddCommand } from "./mcp.js";
+import { PRIVACY_NOTE, mcpAddCommand } from "./mcp.js";
 
 export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
@@ -268,7 +268,7 @@ export const MCP_HEADING = "MCP server (free daily quota)";
 /** One paragraph on the free MCP endpoint, shared by the preview page, llms.txt and SKILL.md. */
 export const mcpBlurb = (baseUrl: string, p: PriceInfo) =>
   `Remote MCP server (Streamable HTTP) at ${baseUrl}/mcp with tools cn_workday_check and package_advisories. ` +
-  `${p.freePerIpDaily} free calls per IP address per day, no sign-up and no personal data. After that each tool call returns an error naming the x402 URL and price of the same lookup.`;
+  `${p.freePerIpDaily} free calls per IP address per day, no sign-up. After that each tool call returns an error naming the x402 URL and price of the same lookup. ${PRIVACY_NOTE}`;
 
 export function llmsTxt(baseUrl: string, p: PriceInfo): string {
   return `# ${SITE_NAME}

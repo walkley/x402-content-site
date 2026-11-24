@@ -9,7 +9,9 @@ import { configFromEnv, createApp } from "./app.js";
  *
  * The facilitator sync runs here, in the Lambda init phase, so it is never frozen half-way the way a background
  * request is after a fast free first request. A failed sync does not fail init: the next paid request retries it.
+ * The free MCP quota's HMAC key is read here too, once; if that fails, MCP calls get the paid hint and retry the read.
  */
 const app = createApp(configFromEnv(process.env));
 await app.initFacilitator();
+await app.initQuota();
 export const handler = handle(app);

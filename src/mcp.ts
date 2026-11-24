@@ -16,7 +16,14 @@ export const MCP_REGISTRY_NAME = "io.github.walkley/cn-calendar";
 export const MCP_VERSION = "1.0.0";
 export const MCP_TITLE = "China Workday Calendar";
 /** Newest first; the server answers initialize with the client's version when it is listed, else the newest. */
-export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+// 2025-03-26 is left out (it requires accepting JSON-RPC batches) and 2024-11-05 (HTTP+SSE, not Streamable HTTP).
+export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"];
+/** Whole budget for counting one call (two DynamoDB writes and the key read); past it the call gets the paid hint. */
+export const QUOTA_TIMEOUT_MS = 3_000;
+/** What the free tier keeps about callers. Shown in mcp.json, on /, in llms.txt, SKILL.md and the README. */
+export const PRIVACY_NOTE =
+  "Quota counters store no raw IP address, only a keyed hash (HMAC-SHA256 of the day and IP), deleted by TTL after 2 days; " +
+  "API Gateway access logs keep the source IP for 30 days.";
 
 export const mcpAddCommand = (baseUrl: string) => `claude mcp add --transport http ${MCP_SERVER_NAME} ${baseUrl}/mcp`;
 
@@ -135,7 +142,7 @@ export function mcpHandler(d: McpDeps) {
     if (!d.quota || !ip) outcome = "unavailable";
     else {
       try {
-        outcome = await d.quota.consume(ip);
+        outcome = await withTimeout(d.quota.consume(ip), QUOTA_TIMEOUT_MS);
       } catch (e) {
         // Fail closed: a store error never grants a free call; the caller gets the paid route instead of a 500.
         console.error(JSON.stringify({ ts: new Date().toISOString(), type: "quota_error", message: (e as Error).message }));
@@ -181,8 +188,13 @@ export function mcpHandler(d: McpDeps) {
       return c.json(rpcError(null, -32600, "Invalid request: send one JSON-RPC object (batches are not supported)"), 400);
     }
     const m = msg as Json;
-    // Notifications and client responses carry no id that needs an answer.
-    if (m.method === undefined || m.id === undefined) return c.body(null, 202);
+    const hasId = typeof m.id === "string" || typeof m.id === "number";
+    const isRequest = m.jsonrpc === "2.0" && typeof m.method === "string" && hasId;
+    const isNotification = m.jsonrpc === "2.0" && typeof m.method === "string" && !("id" in m);
+    const isResponse = m.jsonrpc === "2.0" && m.method === undefined && hasId && ("result" in m || "error" in m);
+    // Only notifications and responses are accepted with 202 and no body; anything else that is not a request is a 400.
+    if (isNotification || isResponse) return c.body(null, 202);
+    if (!isRequest) return c.json(rpcError(null, -32600, "Invalid request: not a JSON-RPC 2.0 request, notification or response"), 400);
     const id = m.id as Id;
     const params = (m.params ?? {}) as Json;
     switch (m.method) {
@@ -227,7 +239,7 @@ export function mcpManifest(baseUrl: string, d: Pick<McpDeps, "perIpDaily" | "gl
     free_tier: {
       calls_per_ip_per_day: d.perIpDaily,
       global_calls_per_day: d.globalDaily,
-      personal_data: "none; the counter key is a hash of the source IP and the UTC day, deleted after two days",
+      privacy: PRIVACY_NOTE,
       after_quota: "tool error naming the x402 pay-per-call URL and price",
     },
     payment: {
@@ -245,4 +257,13 @@ export function mcpManifest(baseUrl: string, d: Pick<McpDeps, "perIpDaily" | "gl
     skill: `${baseUrl}/SKILL.md`,
     repository: "https://github.com/walkley/x402-content-site",
   };
+}
+
+/** Rejects after ms; the abandoned promise keeps running and its result is ignored. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`quota timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
