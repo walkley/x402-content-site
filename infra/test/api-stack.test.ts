@@ -340,9 +340,13 @@ describe("facilitator=cdp", () => {
   });
 
   it("payai sets no CDP_SECRET_NAME and grants no CDP secret read", () => {
-    const vars = template.findResources("AWS::Lambda::Function")[apiFnId].Properties.Environment.Variables;
-    expect(vars.FACILITATOR).toBe("payai");
-    expect(vars.CDP_SECRET_NAME).toBeUndefined();
-    expect(smStatements(template).some((st) => JSON.stringify(st.Resource).includes("cdp-api-key"))).toBe(false);
+    // The real secret name, so a grant made regardless of facilitator would show up here.
+    const t = Template.fromStack(stack({ facilitator: "payai", cdpSecretName: "x402-content-site/cdp-api-key" }, "PayaiStack"));
+    const fn = Object.values(t.findResources("AWS::Lambda::Function")).find((r) => r.Properties.Environment?.Variables?.FACILITATOR)!;
+    expect(fn.Properties.Environment.Variables.FACILITATOR).toBe("payai");
+    expect(fn.Properties.Environment.Variables.CDP_SECRET_NAME).toBeUndefined();
+    const sm = smStatements(t);
+    expect(sm).toHaveLength(1); // the quota HMAC key only
+    expect(JSON.stringify(sm)).not.toContain("cdp-api-key");
   });
 });
