@@ -31,7 +31,7 @@ export interface ApiStackProps extends StackProps {
   /** Base mainnet without budgetEmail is refused unless this is true (an explicit "no email alert" choice). */
   noBudget?: boolean;
   /**
-   * Cost breaker: when the API function's invocations in one UTC day exceed this, its reserved concurrency is set
+   * Cost breaker: when the API function's invocations in the last 24 hours exceed this, its reserved concurrency is set
    * to 0, which stops Lambda, log and most request cost until a person restores it. Default in infra/bin/app.ts.
    */
   breakerDailyInvocations: number;
@@ -47,7 +47,8 @@ export const BREAKER_CODE = `const { LambdaClient, PutFunctionConcurrencyCommand
 const lambda = new LambdaClient({});
 exports.handler = async (event) => {
   const alarms = (event.Records || []).map((r) => { try { return JSON.parse(r.Sns.Message); } catch { return {}; } });
-  if (!alarms.some((a) => a.NewStateValue === "ALARM")) return { skipped: true };
+  // Only our own alarm's transition into ALARM trips the breaker.
+  if (!alarms.some((a) => a.AlarmName === process.env.ALARM_NAME && a.NewStateValue === "ALARM")) return { skipped: true };
   await lambda.send(new PutFunctionConcurrencyCommand({ FunctionName: process.env.TARGET_FUNCTION, ReservedConcurrentExecutions: 0 }));
   console.log(JSON.stringify({ type: "cost_breaker", action: "reserved_concurrency_0", target: process.env.TARGET_FUNCTION, alarms: alarms.map((a) => a.AlarmName) }));
   return { tripped: true };
@@ -134,9 +135,9 @@ export class ApiStack extends Stack {
     if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", api.apiEndpoint);
     new CfnOutput(this, "ApiUrl", { value: `${api.apiEndpoint}/` });
 
-    // Cost breaker, no email needed: CloudWatch alarm on the day's invocations -> SNS -> breaker Lambda ->
-    // PutFunctionConcurrency(0) on the API function. Requests then get 5xx from API Gateway without running Lambda.
-    // The topic has no extra policy (same-account CloudWatch publishes under the default one) and one subscription.
+    // Cost breaker, no email needed: CloudWatch alarm on the invocations in the last 24 hours -> SNS -> breaker Lambda
+    // -> PutFunctionConcurrency(0) on the API function. Requests then get 5xx from API Gateway without running Lambda.
+    // The topic policy lets only this alarm publish, and the topic has one subscription.
     const breakerLogs = new LogGroup(this, "BreakerLogs", { retention: RetentionDays.THREE_MONTHS });
     // Own role instead of the default AWSLambdaBasicExecutionRole: logs only to its own group, one action on one function.
     const breakerRole = new Role(this, "BreakerRole", { assumedBy: new ServicePrincipal("lambda.amazonaws.com") });
@@ -151,12 +152,13 @@ export class ApiStack extends Stack {
       logGroup: breakerLogs,
       memorySize: 128,
       timeout: Duration.seconds(30),
-      environment: { TARGET_FUNCTION: fn.functionName },
+      environment: { TARGET_FUNCTION: fn.functionName }, // ALARM_NAME is added below, once the alarm exists
     });
     const topic = new Topic(this, "BreakerTopic");
     topic.addSubscription(new LambdaSubscription(breaker));
     const alarm = new Alarm(this, "DailyInvocationsAlarm", {
-      alarmDescription: `API function invocations in one UTC day > ${props.breakerDailyInvocations}: reserved concurrency set to 0 (README "Cost breaker").`,
+      // No EvaluationWindow: a sliding 24-hour sum, evaluated every minute (not aligned to UTC days).
+      alarmDescription: `API function invocations in the last 24 hours > ${props.breakerDailyInvocations}: reserved concurrency set to 0 (README "Cost breaker").`,
       metric: fn.metricInvocations({ period: Duration.days(1), statistic: "Sum" }),
       threshold: props.breakerDailyInvocations,
       comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
@@ -164,6 +166,17 @@ export class ApiStack extends Stack {
       treatMissingData: TreatMissingData.NOT_BREACHING,
     });
     alarm.addAlarmAction(new SnsAction(topic));
+    // Replaces SNS's default topic policy (AWS:* limited to this account): only CloudWatch, only for this alarm.
+    topic.addToResourcePolicy(
+      new PolicyStatement({
+        principals: [new ServicePrincipal("cloudwatch.amazonaws.com")],
+        actions: ["sns:Publish"],
+        resources: [topic.topicArn],
+        conditions: { ArnEquals: { "aws:SourceArn": alarm.alarmArn } },
+      }),
+    );
+    breaker.addEnvironment("ALARM_NAME", alarm.alarmName);
+    new CfnOutput(this, "BreakerAlarmName", { value: alarm.alarmName });
     new CfnOutput(this, "ApiFunctionName", { value: fn.functionName });
   }
 }

@@ -75,7 +75,7 @@ describe("ApiStack", () => {
 });
 
 describe("cost breaker", () => {
-  it("alarms on the API function's invocations per UTC day and publishes to the breaker topic", () => {
+  it("alarms on the API function's invocations in the last 24 hours and publishes to the breaker topic", () => {
     const topicId = logicalId("AWS::SNS::Topic", "BreakerTopic");
     template.resourceCountIs("AWS::CloudWatch::Alarm", 1);
     template.hasResourceProperties("AWS::CloudWatch::Alarm", {
@@ -90,6 +90,30 @@ describe("cost breaker", () => {
       Dimensions: [{ Name: "FunctionName", Value: { Ref: apiFnId } }],
       AlarmActions: [{ Ref: topicId }],
     });
+    const alarm = Object.values(template.findResources("AWS::CloudWatch::Alarm"))[0];
+    expect(alarm.Properties.EvaluationWindow).toBeUndefined(); // sliding window, evaluated every minute
+    expect(alarm.Properties.AlarmDescription).toContain("in the last 24 hours");
+    const alarmId = logicalId("AWS::CloudWatch::Alarm", "DailyInvocationsAlarm");
+    template.hasOutput("BreakerAlarmName", { Value: { Ref: alarmId } });
+  });
+
+  it("topic policy lets only CloudWatch publish, and only for this alarm", () => {
+    const topicId = logicalId("AWS::SNS::Topic", "BreakerTopic");
+    const alarmId = logicalId("AWS::CloudWatch::Alarm", "DailyInvocationsAlarm");
+    const policies = Object.values(template.findResources("AWS::SNS::TopicPolicy"));
+    expect(policies).toHaveLength(1);
+    expect(policies[0].Properties.Topics).toEqual([{ Ref: topicId }]);
+    expect(policies[0].Properties.PolicyDocument.Statement).toEqual([
+      // only extra key allowed is CDK's generated Sid
+      {
+        Sid: expect.any(String),
+        Effect: "Allow",
+        Principal: { Service: "cloudwatch.amazonaws.com" },
+        Action: "sns:Publish",
+        Resource: { Ref: topicId },
+        Condition: { ArnEquals: { "aws:SourceArn": { "Fn::GetAtt": [alarmId, "Arn"] } } },
+      },
+    ]);
   });
 
   it("subscribes only the breaker Lambda to the topic, and only SNS from that topic may invoke it", () => {
@@ -100,7 +124,6 @@ describe("cost breaker", () => {
       TopicArn: { Ref: topicId },
       Endpoint: { "Fn::GetAtt": [breakerFnId, "Arn"] },
     });
-    template.resourceCountIs("AWS::SNS::TopicPolicy", 0);
     const perms = Object.values(template.findResources("AWS::Lambda::Permission")).filter(
       (p) => JSON.stringify(p.Properties.FunctionName).includes(breakerFnId),
     );
@@ -127,12 +150,14 @@ describe("cost breaker", () => {
     expect(JSON.stringify(statements)).not.toContain('"*"');
     template.hasResourceProperties("AWS::Lambda::Function", {
       Role: { "Fn::GetAtt": [roleId, "Arn"] },
-      Environment: { Variables: { TARGET_FUNCTION: { Ref: apiFnId } } },
+      Environment: {
+        Variables: { TARGET_FUNCTION: { Ref: apiFnId }, ALARM_NAME: { Ref: logicalId("AWS::CloudWatch::Alarm", "DailyInvocationsAlarm") } },
+      },
       LoggingConfig: Match.objectLike({ LogGroup: { Ref: logsId } }),
     });
   });
 
-  it("breaker handler sets the target's reserved concurrency to 0 only on an ALARM notification", async () => {
+  it("breaker handler sets the target's reserved concurrency to 0 only on its own alarm's ALARM notification", async () => {
     const sent: unknown[] = [];
     class PutFunctionConcurrencyCommand { constructor(readonly input: unknown) {} }
     class LambdaClient { async send(cmd: { input: unknown }) { sent.push(cmd.input); } }
@@ -140,13 +165,14 @@ describe("cost breaker", () => {
     runInNewContext(BREAKER_CODE, {
       require: (id: string) => (id === "@aws-sdk/client-lambda" ? { LambdaClient, PutFunctionConcurrencyCommand } : undefined),
       exports: mod.exports,
-      process: { env: { TARGET_FUNCTION: "api-fn" } },
+      process: { env: { TARGET_FUNCTION: "api-fn", ALARM_NAME: "a" } },
       console: { log: () => {} },
       JSON,
     });
     const sns = (msg: string) => ({ Records: [{ Sns: { Message: msg } }] });
     expect(await mod.exports.handler(sns(JSON.stringify({ AlarmName: "a", NewStateValue: "OK" })))).toEqual({ skipped: true });
     expect(await mod.exports.handler(sns("not json"))).toEqual({ skipped: true });
+    expect(await mod.exports.handler(sns(JSON.stringify({ AlarmName: "other", NewStateValue: "ALARM" })))).toEqual({ skipped: true });
     expect(sent).toHaveLength(0);
     expect(await mod.exports.handler(sns(JSON.stringify({ AlarmName: "a", NewStateValue: "ALARM" })))).toEqual({ tripped: true });
     expect(sent).toEqual([{ FunctionName: "api-fn", ReservedConcurrentExecutions: 0 }]);
