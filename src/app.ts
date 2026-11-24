@@ -158,7 +158,13 @@ interface RequestMeta {
 async function quoteInBody(c: Context) {
   const header = c.res.headers.get("payment-required");
   if (c.res.status !== 402 || !header || !(c.res.headers.get("content-type") ?? "").startsWith("application/json")) return;
-  const { x402Version, accepts, resource } = decodePaymentRequiredHeader(header);
+  let quote: ReturnType<typeof decodePaymentRequiredHeader>;
+  try {
+    quote = decodePaymentRequiredHeader(header);
+  } catch {
+    return; // leave the 402 as the middleware built it; the funnel logs the undecodable header
+  }
+  const { x402Version, accepts, resource } = quote;
   let body: unknown;
   try {
     body = await c.res.clone().json();
