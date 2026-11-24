@@ -2,7 +2,7 @@
 // Tool calls use the same calendar data and OSV.dev client as the paid routes. Each call takes one unit of the free
 // daily quota; when the quota is used up, or cannot be counted, the tool answers with an error that names the paid
 // x402 route. This path never verifies or settles a payment.
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { InputError, MAX_RANGE_DAYS } from "./calendar.js";
 import { ECOSYSTEMS, UpstreamError, parsePackageQuery, type OsvClient } from "./advisories.js";
 import type { PriceInfo } from "./content.js"; // type only: content.ts imports this module
@@ -23,7 +23,13 @@ export const QUOTA_TIMEOUT_MS = 3_000;
 /** What the free tier keeps about callers. Shown in mcp.json, on /, in llms.txt, SKILL.md and the README. */
 export const PRIVACY_NOTE =
   "Quota counters store no raw IP address, only a keyed hash (HMAC-SHA256 of the day and IP), deleted by TTL after 2 days; " +
-  "API Gateway access logs keep the source IP for 30 days.";
+  "request logs keep only the same hash, which changes every UTC day; API Gateway access logs keep the source IP for 30 days.";
+
+/** Query parameter the over-quota hint adds to the paid URL, so the funnel can tell MCP referrals apart. */
+export const MCP_SRC = "mcp";
+/** Longest client name/version and User-Agent kept in a log line. */
+export const CLIENT_FIELD_MAX = 64;
+export const USER_AGENT_MAX = 200;
 
 export const mcpAddCommand = (baseUrl: string) => `claude mcp add --transport http ${MCP_SERVER_NAME} ${baseUrl}/mcp`;
 
@@ -82,9 +88,13 @@ const textResult = (text: string, isError = false, structured?: unknown) => ({
   ...(isError ? { isError: true } : {}),
 });
 
-/** The paid route that serves the same call, for the over-quota answer. */
+/**
+ * The paid route that serves the same call, for the over-quota answer. The URL ends in src=mcp, which the paid routes
+ * only log (validation reads its own parameters by name, and the price does not depend on the query).
+ */
 function paidRoute(name: string, args: Json, base: string, p: McpPrices) {
-  const q = (o: Record<string, unknown>) => new URLSearchParams(Object.entries(o).map(([k, v]) => [k, String(v)])).toString();
+  const q = (o: Record<string, unknown>) =>
+    new URLSearchParams([...Object.entries(o).map(([k, v]) => [k, String(v)]), ["src", MCP_SRC]]).toString();
   if (name === "package_advisories") {
     return { url: `${base}/deps/advisories?${q({ ecosystem: args.ecosystem, name: args.name, version: args.version })}`, price: p.advisoriesPrice };
   }
@@ -109,11 +119,58 @@ function prepare(name: string, args: Json, osv: OsvClient): () => Promise<unknow
   return () => osv.query(query);
 }
 
+type ApiGatewayEvent = { requestContext?: { requestId?: string; http?: { sourceIp?: string } } };
+const eventOf = (c: Context) => (c.env as { event?: ApiGatewayEvent } | undefined)?.event;
 /** API Gateway HTTP API source IP (hono/aws-lambda passes the event as c.env.event). Never X-Forwarded-For. */
-const sourceIpOf = (c: Context): string | undefined =>
-  (c.env as { event?: { requestContext?: { http?: { sourceIp?: string } } } } | undefined)?.event?.requestContext?.http?.sourceIp;
+export const sourceIpOf = (c: Context): string | undefined => eventOf(c)?.requestContext?.http?.sourceIp;
+/** API Gateway's request id, the access log's requestId. */
+export const apigwRequestIdOf = (c: Context): string | undefined => eventOf(c)?.requestContext?.requestId;
+/** A client-supplied value for a log line: strings only, cut to max. */
+export const clip = (v: unknown, max: number): string | undefined => (typeof v === "string" ? v.slice(0, max) : undefined);
+/**
+ * Today's keyed hash of the caller's IP (the free quota's HMAC), or undefined when there is no IP or the key is not
+ * loaded. Never the raw IP, never throws.
+ */
+export function ipHashOf(c: Context, quota: FreeQuota | undefined): string | undefined {
+  const ip = sourceIpOf(c);
+  if (!ip || !quota?.ipHash) return undefined;
+  try {
+    return quota.ipHash(ip);
+  } catch {
+    return undefined;
+  }
+}
 
-const log = (fields: Json) => console.log(JSON.stringify({ ts: new Date().toISOString(), type: "mcp_call", ...fields }));
+const MCP_LOG = "mcpLog";
+const fieldsOf = (c: Context): Json => (c.get(MCP_LOG) as Json | undefined) ?? {};
+
+/**
+ * One `{"type":"mcp"}` log line per /mcp request, written when the response is ready, whatever answered it (the
+ * handler, the Origin check, the body limit, the 405). The handler adds method, client and tool-call fields.
+ */
+export function mcpRequestLog(quota: FreeQuota | undefined): MiddlewareHandler {
+  return async (c, next) => {
+    const fields: Json = {};
+    c.set(MCP_LOG, fields);
+    try {
+      await next();
+    } finally {
+      console.log(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          type: "mcp",
+          method: "-",
+          http_method: c.req.method,
+          status: c.res.status,
+          user_agent: clip(c.req.header("user-agent"), USER_AGENT_MAX),
+          ip_hash: ipHashOf(c, quota),
+          apigw_request_id: apigwRequestIdOf(c),
+          ...fields,
+        }),
+      );
+    }
+  };
+}
 
 export function mcpHandler(d: McpDeps) {
   const reasonText = {
@@ -125,50 +182,62 @@ export function mcpHandler(d: McpDeps) {
   async function callTool(c: Context, params: Json): Promise<{ error: [number, string] } | { result: unknown }> {
     const name = params.name;
     const args = (params.arguments ?? {}) as Json;
-    if (name !== "cn_workday_check" && name !== "package_advisories") return { error: [-32602, `Unknown tool: ${String(name)}`] };
-    if (typeof args !== "object" || args === null || Array.isArray(args)) return { error: [-32602, "arguments must be an object"] };
-    const request_id = crypto.randomUUID();
+    const f = fieldsOf(c);
+    f.tool = clip(name, CLIENT_FIELD_MAX);
+    if (name !== "cn_workday_check" && name !== "package_advisories") {
+      Object.assign(f, { outcome: "invalid_request", reason: "unknown_tool" });
+      return { error: [-32602, `Unknown tool: ${String(name)}`] };
+    }
+    if (typeof args !== "object" || args === null || Array.isArray(args)) {
+      Object.assign(f, { outcome: "invalid_request", reason: "arguments_not_object" });
+      return { error: [-32602, "arguments must be an object"] };
+    }
     let run: () => Promise<unknown>;
     try {
       run = prepare(name, args, d.osv);
     } catch (e) {
       if (!(e instanceof InputError)) throw e;
-      log({ request_id, tool: name, outcome: "invalid_input", reason: e.code });
+      Object.assign(f, { outcome: "invalid_input", reason: e.code });
       return { result: textResult(`${e.code}: ${e.message}. Not counted against the free quota.`, true) };
     }
 
     let outcome: "ok" | "ip_limit" | "global_limit" | "unavailable";
     const ip = sourceIpOf(c);
-    if (!d.quota || !ip) outcome = "unavailable";
-    else {
+    if (!d.quota || !ip) {
+      outcome = "unavailable";
+      f.reason = d.quota ? "no_source_ip" : "no_quota_store";
+    } else {
       try {
-        outcome = await withTimeout(d.quota.consume(ip), QUOTA_TIMEOUT_MS);
+        const use = await withTimeout(d.quota.consume(ip), QUOTA_TIMEOUT_MS);
+        outcome = use.result;
+        f.free_call_n = use.ipCalls;
       } catch (e) {
         // Fail closed: a store error never grants a free call; the caller gets the paid route instead of a 500.
         console.error(JSON.stringify({ ts: new Date().toISOString(), type: "quota_error", message: (e as Error).message }));
         outcome = "unavailable";
+        f.reason = e instanceof QuotaTimeoutError ? "quota_timeout" : "quota_error";
       }
     }
+    f.outcome = outcome;
     if (outcome !== "ok") {
       const base = d.baseUrl(c);
       const paid = paidRoute(name, args, base, d.prices);
-      log({ request_id, tool: name, outcome });
+      // Wallet first: `add` only registers this origin and cannot pay without one.
       const text =
-        `Free MCP quota: ${reasonText[outcome]}. This call is available pay-per-call over x402 ` +
-        `(USDC on Base, network ${d.prices.network}, scheme exact):\n` +
+        `1. Create an x402 wallet (once): npx agentcash onboard\n` +
+        `2. Add these paid APIs to your agent: npx agentcash add ${base}\n` +
+        `3. Call it pay-per-call over x402 (USDC on Base, network ${d.prices.network}, scheme exact; any x402 v2 client can pay):\n` +
         `GET ${paid.url}\nPrice: ${paid.price} USDC per call.\n` +
-        `Any x402 v2 client can pay it. Add these paid APIs to your agent: npx agentcash add ${base}\n` +
-        `Docs: ${base}/llms.txt`;
+        `Why: free MCP quota, ${reasonText[outcome]}. Docs: ${base}/llms.txt`;
       return { result: textResult(text, true) };
     }
 
     try {
       const data = await run();
-      log({ request_id, tool: name, outcome: "ok" });
       return { result: textResult(JSON.stringify(data), false, data) };
     } catch (e) {
       if (!(e instanceof UpstreamError)) throw e;
-      log({ request_id, tool: name, outcome: "upstream_error" });
+      Object.assign(f, { outcome: "upstream_error", reason: clip(e.message, USER_AGENT_MAX) });
       return { result: textResult(`${e.message}. Retry later.`, true) };
     }
   }
@@ -178,13 +247,16 @@ export function mcpHandler(d: McpDeps) {
     if (version && !MCP_PROTOCOL_VERSIONS.includes(version)) {
       return c.json(rpcError(null, -32600, `Unsupported MCP-Protocol-Version ${version}; supported: ${MCP_PROTOCOL_VERSIONS.join(", ")}`), 400);
     }
+    const f = fieldsOf(c);
     let msg: unknown;
     try {
       msg = await c.req.json();
     } catch {
+      f.method = "parse_error";
       return c.json(rpcError(null, -32700, "Parse error: body must be one JSON-RPC message"), 400);
     }
     if (Array.isArray(msg) || typeof msg !== "object" || msg === null) {
+      f.method = "invalid";
       return c.json(rpcError(null, -32600, "Invalid request: send one JSON-RPC object (batches are not supported)"), 400);
     }
     const m = msg as Json;
@@ -192,6 +264,7 @@ export function mcpHandler(d: McpDeps) {
     const isRequest = m.jsonrpc === "2.0" && typeof m.method === "string" && hasId;
     const isNotification = m.jsonrpc === "2.0" && typeof m.method === "string" && !("id" in m);
     const isResponse = m.jsonrpc === "2.0" && m.method === undefined && hasId && ("result" in m || "error" in m);
+    f.method = isRequest || isNotification ? clip(m.method, CLIENT_FIELD_MAX) : isResponse ? "response" : "invalid";
     // Only notifications and responses are accepted with 202 and no body; anything else that is not a request is a 400.
     if (isNotification || isResponse) return c.body(null, 202);
     if (!isRequest) return c.json(rpcError(null, -32600, "Invalid request: not a JSON-RPC 2.0 request, notification or response"), 400);
@@ -200,6 +273,9 @@ export function mcpHandler(d: McpDeps) {
     switch (m.method) {
       case "initialize": {
         const requested = params.protocolVersion as string;
+        const info = params.clientInfo as Json | undefined;
+        f.client_name = clip(info?.name, CLIENT_FIELD_MAX);
+        f.client_version = clip(info?.version, CLIENT_FIELD_MAX);
         return c.json(
           rpcResult(id, {
             protocolVersion: MCP_PROTOCOL_VERSIONS.includes(requested) ? requested : MCP_PROTOCOL_VERSIONS[0],
@@ -259,11 +335,13 @@ export function mcpManifest(baseUrl: string, d: Pick<McpDeps, "perIpDaily" | "gl
   };
 }
 
+class QuotaTimeoutError extends Error {}
+
 /** Rejects after ms; the abandoned promise keeps running and its result is ignored. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`quota timed out after ${ms} ms`)), ms);
+    timer = setTimeout(() => reject(new QuotaTimeoutError(`quota timed out after ${ms} ms`)), ms);
   });
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }

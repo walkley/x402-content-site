@@ -25,9 +25,13 @@ export interface FunnelEvent {
   payer?: string;
   tx?: string;
   network?: string;
+  /** Referral tag from the query string; only "mcp" (the MCP over-quota hint) is kept. */
+  src?: string;
+  /** Daily keyed hash of the source IP (same HMAC as the free MCP quota). Never the raw IP. */
+  ip_hash?: string;
 }
 
-const FIELDS = ["stage", "route", "request_id", "user_agent", "status", "reason", "payer", "tx", "network"] as const satisfies readonly (keyof FunnelEvent)[];
+const FIELDS = ["stage", "route", "request_id", "user_agent", "status", "reason", "payer", "tx", "network", "src", "ip_hash"] as const satisfies readonly (keyof FunnelEvent)[];
 
 export type FunnelSink = (line: string) => void;
 

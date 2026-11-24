@@ -165,7 +165,7 @@ describe("free MCP endpoint behind the HTTP API", () => {
         facilitator,
         publicBaseUrl: `https://${HOST}`,
         funnel: new FunnelLogger(() => {}),
-        quota: { perIpDaily: 20, globalDaily: 2000, consume: async (ip) => (seen.push(ip), "ok") },
+        quota: { perIpDaily: 20, globalDaily: 2000, consume: async (ip) => (seen.push(ip), { result: "ok" }) },
       }),
     );
     const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "cn_workday_check", arguments: { date: "2026-10-01" } } });

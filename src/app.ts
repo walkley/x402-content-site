@@ -27,7 +27,7 @@ import {
 } from "./content-deps.js";
 import { calendar } from "./data.js";
 import { FunnelLogger } from "./funnel.js";
-import { mcpHandler, mcpManifest } from "./mcp.js";
+import { MCP_SRC, ipHashOf, mcpHandler, mcpManifest, mcpRequestLog } from "./mcp.js";
 import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
 import {
   CDP_FACILITATOR_URL,
@@ -425,14 +425,17 @@ export function createApp(cfg: AppConfig) {
       user_agent: c.req.header("user-agent") ?? "",
     };
     const paymentHeader = c.req.header("payment-signature") || c.req.header("x-payment");
+    // On the request stage only. src: only the value the MCP over-quota hint sets, anything else is dropped. ip_hash:
+    // the free quota's daily HMAC of the source IP, to match an MCP caller to a later paid request; absent without the key.
+    const tags = { src: c.req.query("src") === MCP_SRC ? MCP_SRC : undefined, ip_hash: ipHashOf(c, cfg.quota) };
     try {
       if (paymentHeader || !(await isBareRequest(c, paid.method))) await paid.validate(c);
     } catch (e) {
       if (!(e instanceof InputError)) throw e;
-      funnel.log({ stage: "request", ...meta, status: e.status, reason: `rejected_input: ${e.code}` });
+      funnel.log({ stage: "request", ...meta, ...tags, status: e.status, reason: `rejected_input: ${e.code}` });
       return inputErrorResponse(c, e);
     }
-    funnel.log({ stage: "request", ...meta });
+    funnel.log({ stage: "request", ...meta, ...tags });
     if (paymentHeader) {
       funnel.log({ stage: "payment_header_received", ...meta });
       inflight.set(paymentHeader, meta);
@@ -497,6 +500,7 @@ export function createApp(cfg: AppConfig) {
   // /mcp: Streamable HTTP requires validating Origin (DNS rebinding, and a web page spending its visitors' free quota).
   // MCP clients such as Claude Code send no Origin. A listed origin gets CORS for that origin only, never "*".
   const mcpOrigins = cfg.mcpAllowedOrigins ?? [];
+  app.use("/mcp", mcpRequestLog(cfg.quota)); // first, so every /mcp answer (403, 405, 413 too) gets its log line
   app.use("/mcp", async (c, next) => {
     const origin = c.req.header("origin");
     if (origin !== undefined && !mcpOrigins.includes(origin)) {

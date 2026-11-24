@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FacilitatorClient } from "@x402/core/server";
+import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { ConditionalCheckFailedException, type UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { createApp } from "../src/app.js";
 import { OsvClient } from "../src/advisories.js";
 import { FunnelLogger } from "../src/funnel.js";
 import { createHash } from "node:crypto";
 import { MCP_REGISTRY_NAME, MCP_VERSION, PRIVACY_NOTE, QUOTA_TIMEOUT_MS } from "../src/mcp.js";
-import { DynamoQuota, globalKey, hmacKeyLoader, ipKey, type FreeQuota } from "../src/quota.js";
+import { DynamoQuota, globalKey, hmacKeyLoader, ipHash, ipKey, type FreeQuota } from "../src/quota.js";
 import { fakeOsvFetch } from "./helpers/osv.js";
 
 const NETWORK = "eip155:8453";
@@ -29,8 +30,9 @@ class FakeDynamo {
     if (cur && !(cur.n < Number(v[":limit"].N))) {
       throw new ConditionalCheckFailedException({ message: "The conditional request failed", $metadata: {} });
     }
-    this.items.set(key, { n: (cur?.n ?? 0) + Number(v[":one"].N), expires_at: Number(v[":exp"].N) });
-    return {};
+    const n = (cur?.n ?? 0) + Number(v[":one"].N);
+    this.items.set(key, { n, expires_at: Number(v[":exp"].N) });
+    return i.ReturnValues === "UPDATED_NEW" ? { Attributes: { n: { N: String(n) } } } : {};
   }
 }
 
@@ -53,7 +55,7 @@ class CountingFacilitator implements FacilitatorClient {
 const NOW = Date.UTC(2026, 10, 24, 12);
 const KEY = "k".repeat(64);
 beforeEach(() => {
-  vi.spyOn(console, "log").mockImplementation(() => {}); // mcp_call lines
+  vi.spyOn(console, "log").mockImplementation(() => {}); // mcp request log lines
   return () => vi.restoreAllMocks();
 });
 
@@ -80,15 +82,15 @@ function setup(
     mcpAllowedOrigins: opts.origins,
   });
   let n = 0;
-  const rpc = async (method: string, params?: unknown, ip = "203.0.113.9", headers: Record<string, string> = {}) => {
+  const rpc = async (method: string, params?: unknown, ip = "203.0.113.9", headers: Record<string, string> = {}, notify = false) => {
     const res = await app.request(
       "/mcp",
       {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
-        body: JSON.stringify({ jsonrpc: "2.0", id: ++n, method, ...(params ? { params } : {}) }),
+        body: JSON.stringify({ jsonrpc: "2.0", ...(notify ? {} : { id: ++n }), method, ...(params ? { params } : {}) }),
       },
-      { event: { requestContext: { http: { sourceIp: ip } } } },
+      { event: { requestContext: { requestId: `apigw-${n}`, http: { sourceIp: ip } } } },
     );
     return { status: res.status, body: res.status === 202 ? null : await res.json() };
   };
@@ -221,17 +223,22 @@ describe("MCP tools on the free quota", () => {
     expect(r.result.isError).toBe(true);
     const text = r.result.content[0].text as string;
     expect(text).toContain("20 free calls per day for your IP address");
-    expect(text).toContain(`GET ${BASE}/cn/workday?date=2026-10-08`);
-    expect(text).toContain("$0.003");
-    expect(text).toContain(`npx agentcash add ${BASE}`);
+    const lines = text.split("\n");
+    // wallet first, then add, then the paid URL (tagged src=mcp) and its price
+    expect(lines[0]).toContain("npx agentcash onboard");
+    expect(lines[1]).toContain(`npx agentcash add ${BASE}`);
+    const urlLine = lines.findIndex((l) => l === `GET ${BASE}/cn/workday?date=2026-10-08&src=mcp`);
+    expect(urlLine).toBeGreaterThan(1);
+    expect(lines[urlLine + 1]).toBe("Price: $0.003 USDC per call.");
     expect(text).toContain(NETWORK);
     expect(r.result.structuredContent).toBeUndefined();
     // range and package calls name their own paid routes
     const range = (await call("cn_workday_check", { from: "2026-01-05", to: "2026-01-16" })).result.content[0].text;
-    expect(range).toContain(`GET ${BASE}/cn/business-days?from=2026-01-05&to=2026-01-16`);
+    expect(range.split("\n")[0]).toContain("npx agentcash onboard");
+    expect(range).toContain(`GET ${BASE}/cn/business-days?from=2026-01-05&to=2026-01-16&src=mcp`);
     expect(range).toContain("$0.005");
     const pkg = (await call("package_advisories", { ecosystem: "npm", name: "lodash", version: "4.17.20" })).result.content[0].text;
-    expect(pkg).toContain(`GET ${BASE}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20`);
+    expect(pkg).toContain(`GET ${BASE}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20&src=mcp`);
     // another IP still has its free calls
     expect((await call("cn_workday_check", { date: "2026-10-08" }, "198.51.100.4")).result.isError).toBeUndefined();
     expect(db.items.get(globalKey("2026-11-24"))!.n).toBe(21);
@@ -351,6 +358,156 @@ describe("MCP tools on the free quota", () => {
   });
 });
 
+describe("MCP request log", () => {
+  const IP = "203.0.113.9";
+  const logLines = () =>
+    (console.log as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>);
+  const mcpLines = () => logLines().filter((l) => l.type === "mcp");
+
+  it("writes one line per request (initialize, tools/list, notification, tools/call) with method, client, ip_hash, apigw id", async () => {
+    const { app, rpc, call } = setup({ perIp: 2 });
+    await app.initQuota(); // cold start loads the HMAC key
+    const ua = "claude-code/2.1 " + "x".repeat(400);
+    await rpc("initialize", { protocolVersion: "2025-06-18", clientInfo: { name: "claude-code", version: "2.1.0".padEnd(100, "0") } }, IP, { "user-agent": ua });
+    await rpc("notifications/initialized", undefined, IP, {}, true);
+    await rpc("tools/list");
+    await call("cn_workday_check", { date: "2026-10-08" });
+    await call("cn_workday_check", { date: "2026-10-08" });
+    await call("cn_workday_check", { date: "2026-10-08" }); // over the per-IP quota of 2
+    await call("cn_workday_check", { date: "2026-02-30" }); // invalid, not counted
+    const lines = mcpLines();
+    expect(lines.map((l) => l.method)).toEqual([
+      "initialize",
+      "notifications/initialized",
+      "tools/list",
+      "tools/call",
+      "tools/call",
+      "tools/call",
+      "tools/call",
+    ]);
+    const hash = ipHash(IP, "2026-11-24", KEY);
+    for (const l of lines) {
+      expect(l.ip_hash).toBe(hash);
+      expect(l).toHaveProperty("status");
+      expect(typeof l.ts).toBe("string");
+    }
+    expect(lines[0]).toMatchObject({ client_name: "claude-code", user_agent: ua.slice(0, 200), apigw_request_id: "apigw-1", status: 200 });
+    expect((lines[0].client_version as string).length).toBe(64);
+    expect(lines[1]).toMatchObject({ status: 202 });
+    expect(lines[3]).toMatchObject({ tool: "cn_workday_check", outcome: "ok", free_call_n: 1 });
+    expect(lines[4]).toMatchObject({ outcome: "ok", free_call_n: 2 });
+    expect(lines[5]).toMatchObject({ outcome: "ip_limit" });
+    expect(lines[5].free_call_n).toBeUndefined();
+    expect(lines[6]).toMatchObject({ outcome: "invalid_input", reason: "invalid_date" });
+    for (const l of lines.slice(1)) expect(l.client_name).toBeUndefined();
+  });
+
+  it("also logs answers from outside the handler (Origin 403, GET 405) and bad JSON", async () => {
+    const { app } = setup();
+    const env = { event: { requestContext: { requestId: "r1", http: { sourceIp: IP } } } };
+    await app.request("/mcp", { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: "{}" }, env);
+    await app.request("/mcp", {}, env);
+    await app.request("/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: "{" }, env);
+    expect(mcpLines().map((l) => [l.method, l.status, l.apigw_request_id])).toEqual([
+      ["-", 403, "r1"],
+      ["-", 405, "r1"],
+      ["parse_error", 400, "r1"],
+    ]);
+  });
+
+  it("omits ip_hash, without failing, while the HMAC key is not loaded; reason says why a call was unavailable", async () => {
+    const quota = new DynamoQuota(new FakeDynamo(), "quota", async () => Promise.reject(new Error("AccessDeniedException")), 20, 2000, () => NOW);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { rpc, call } = setup({ quota });
+    expect((await rpc("tools/list")).status).toBe(200);
+    expect((await call("cn_workday_check", { date: "2026-10-08" })).result.isError).toBe(true);
+    err.mockRestore();
+    const lines = mcpLines();
+    expect(lines).toHaveLength(2);
+    for (const l of lines) expect(l).not.toHaveProperty("ip_hash");
+    expect(lines[1]).toMatchObject({ outcome: "unavailable", reason: "quota_error" });
+    const { call: noStore } = setup({ quota: null });
+    await noStore("cn_workday_check", { date: "2026-10-08" });
+    expect(mcpLines().at(-1)).toMatchObject({ outcome: "unavailable", reason: "no_quota_store" });
+  });
+
+  it("never writes the raw IP to any log line (mcp, funnel, errors)", async () => {
+    const out: string[] = [];
+    for (const k of ["log", "error", "warn", "info"] as const) vi.spyOn(console, k).mockImplementation((...a) => void out.push(a.join(" ")));
+    const db = new FakeDynamo();
+    const { app, rpc, call, funnel } = setup({ db, perIp: 1 });
+    await app.initQuota();
+    const ip = "198.51.100.231";
+    await rpc("initialize", { protocolVersion: "2025-06-18", clientInfo: { name: "c", version: "1" } }, ip);
+    await rpc("tools/list", undefined, ip);
+    await call("cn_workday_check", { date: "2026-10-08" }, ip);
+    await call("cn_workday_check", { date: "2026-10-08" }, ip);
+    db.fail = new Error("boom");
+    await call("cn_workday_check", { date: "2026-10-09" }, ip);
+    await app.request("/cn/workday?date=2026-10-08&src=mcp", {}, { event: { requestContext: { http: { sourceIp: ip } } } });
+    await app.request("/cn/workday?date=2026-02-30&src=mcp", {}, { event: { requestContext: { http: { sourceIp: ip } } } });
+    expect(out.length).toBeGreaterThan(5);
+    expect(funnel.length).toBeGreaterThan(0);
+    for (const line of [...out, ...funnel]) expect(line).not.toContain(ip);
+  });
+});
+
+describe("paid funnel: src and ip_hash on the request event", () => {
+  const IP = "192.0.2.50";
+  const env = { event: { requestContext: { http: { sourceIp: IP } } } };
+
+  it("records src=mcp (only that value) and the same daily ip_hash as the MCP log", async () => {
+    const { app, funnel } = setup();
+    await app.initQuota();
+    await app.request("/cn/workday?date=2026-10-08&src=mcp", {}, env);
+    await app.request("/cn/workday?date=2026-10-08&src=evil", {}, env);
+    await app.request("/cn/workday?date=2026-10-08", {}, env);
+    await app.request("/cn/workday?date=2026-02-30&src=mcp", {}, env); // free 400, still tagged
+    const requests = funnel.map((l) => JSON.parse(l)).filter((e) => e.stage === "request");
+    expect(requests.map((e) => e.src)).toEqual(["mcp", undefined, undefined, "mcp"]);
+    for (const e of requests) expect(e.ip_hash).toBe(ipHash(IP, "2026-11-24", KEY));
+    for (const e of funnel.map((l) => JSON.parse(l)).filter((e) => e.stage !== "request")) {
+      expect(e.src).toBeUndefined();
+      expect(e.ip_hash).toBeUndefined();
+    }
+  });
+
+  it("omits ip_hash when the HMAC key is not loaded, and the paid route still answers 402", async () => {
+    const { app, funnel } = setup({ key: () => Promise.reject(new Error("denied")) });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await app.initQuota();
+    warn.mockRestore();
+    expect((await app.request("/cn/workday?date=2026-10-08&src=mcp", {}, env)).status).toBe(402);
+    const req = JSON.parse(funnel[0]);
+    expect(req).toMatchObject({ stage: "request", src: "mcp" });
+    expect(req).not.toHaveProperty("ip_hash");
+  });
+
+  it.each([
+    ["/cn/workday?date=2026-10-08", "3000"],
+    ["/cn/business-days?from=2026-01-05&to=2026-01-16", "5000"],
+    ["/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20", "5000"],
+  ])("src=mcp does not change %s's 402, price, payTo or network", async (path, amount) => {
+    const { app } = setup();
+    const quote = async (p: string) => {
+      const res = await app.request(p, {}, env);
+      expect(res.status).toBe(402);
+      const h = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
+      const body = (await res.json()) as { price: string; network: string; accepts: unknown };
+      return { accepts: h.accepts, body: { price: body.price, network: body.network, accepts: body.accepts } };
+    };
+    const plain = await quote(path);
+    const tagged = await quote(`${path}&src=mcp`);
+    expect(tagged).toEqual(plain);
+    expect(plain.accepts).toHaveLength(1);
+    expect(plain.accepts[0]).toMatchObject({ amount, payTo: PAY_TO, network: NETWORK, scheme: "exact" });
+    // invalid input stays a free 400 with src=mcp
+    const bad = await app.request(`${path.split("?")[0]}?src=mcp`, {}, env);
+    expect(bad.status).toBe(400);
+    expect(bad.headers.get("payment-required")).toBeNull();
+  });
+});
+
 describe("MCP discovery", () => {
   it("serves /.well-known/mcp.json pointing at /mcp", async () => {
     const { app } = setup();
@@ -370,7 +527,7 @@ describe("MCP discovery", () => {
     expect(text).toContain(`claude mcp add --transport http cn-calendar ${BASE}/mcp`);
     expect(PRIVACY_NOTE).toBe(
       "Quota counters store no raw IP address, only a keyed hash (HMAC-SHA256 of the day and IP), deleted by TTL after 2 days; " +
-        "API Gateway access logs keep the source IP for 30 days.",
+        "request logs keep only the same hash, which changes every UTC day; API Gateway access logs keep the source IP for 30 days.",
     );
     expect(text).toContain(PRIVACY_NOTE);
     expect(text.toLowerCase()).not.toContain("no personal data");
