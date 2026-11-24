@@ -9,7 +9,8 @@ const payTo = ctx("payTo") ?? process.env.X402_PAY_TO;
 if (!payTo) throw new Error("set the receiving address: cdk deploy -c payTo=0x...");
 
 const network = ctx("network") ?? "eip155:84532";
-const facilitator = (ctx("facilitator") ?? "x402org") as "x402org" | "payai" | "cdp";
+// Default facilitator: x402.org on testnet, PayAI (no account or key) on Base mainnet.
+const facilitator = (ctx("facilitator") ?? (network === "eip155:8453" ? "payai" : "x402org")) as "x402org" | "payai" | "cdp";
 if (!["x402org", "payai", "cdp"].includes(facilitator)) throw new Error("facilitator must be cdp, payai or x402org");
 if (facilitator === "x402org" && network === "eip155:8453") throw new Error("x402org is testnet only; use -c facilitator=cdp or payai");
 

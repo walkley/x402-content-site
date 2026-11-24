@@ -27,7 +27,7 @@ All payment settings come from environment variables. The defaults are testnet v
 |---|---|---|
 | `X402_PAY_TO` | none, required | Address that receives USDC |
 | `X402_NETWORK` | `eip155:84532` (Base Sepolia) | CAIP-2 id |
-| `FACILITATOR` | `x402org` | `x402org`, `payai` or `cdp`, see below |
+| `FACILITATOR` | `x402org` on testnet, `payai` on `eip155:8453` | `x402org`, `payai` or `cdp`, see below |
 | `X402_FACILITATOR_URL` | preset of `FACILITATOR` | Overrides the URL for `x402org`/`payai` only |
 | `CDP_SECRET_NAME` | `x402-content-site/cdp-api-key` | `cdp` only: Secrets Manager secret holding the CDP API key |
 | `PUBLIC_BASE_URL` | request origin | Base URL written into `/openapi.json` and `/llms.txt` |
@@ -41,7 +41,7 @@ All payment settings come from environment variables. The defaults are testnet v
 
 ### CDP API key (cdp mode)
 
-The key is read at runtime, never from code or the CDK app. On first use the Lambda reads the secret named by `CDP_SECRET_NAME` from AWS Secrets Manager, caches it for the container's lifetime, and retries on the next request if the read failed. The secret is created by a person, not by the stack:
+The key is read at runtime, never from code or the CDK app. Only `FACILITATOR=cdp` reads it; other modes never touch Secrets Manager and get no IAM permission for it. A missing secret does not stop a deploy or a cold start: free routes keep working and paid routes answer with an error (no content) until the secret exists. On first use the Lambda reads the secret named by `CDP_SECRET_NAME` from AWS Secrets Manager, caches it for the container's lifetime, and retries on the next request if the read failed. The secret is created by a person, not by the stack:
 
 ```bash
 aws secretsmanager create-secret --region ap-northeast-1 \
@@ -56,7 +56,7 @@ The CDK stack grants the function `secretsmanager:GetSecretValue`/`DescribeSecre
 | Variable | Value |
 |---|---|
 | `X402_NETWORK` | `eip155:8453` (Base mainnet) |
-| `FACILITATOR` | `cdp` (CDP Bazaar listing, needs the CDP key secret) or `payai` (no account) |
+| `FACILITATOR` | `payai` (default on mainnet, no account) or `cdp` (CDP Bazaar listing, needs the CDP key secret) |
 | `X402_PAY_TO` | The user's own Base mainnet receiving address (public address only) |
 
 On Base mainnet the asset the server asks for is native USDC `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
@@ -90,8 +90,8 @@ Not deployed yet. It needs AWS credentials for the target account and a one-time
 cd infra
 npx cdk synth  -c payTo=0x...                                   # works without credentials
 npx cdk deploy -c payTo=0x...                                   # testnet defaults, ap-northeast-1
-npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=cdp     # mainnet, CDP Bazaar
-npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=payai   # mainnet, no account
+npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=payai   # mainnet, no account (also the mainnet default)
+npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=cdp     # mainnet, CDP Bazaar (needs the CDP key secret)
 ```
 
 Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`, `facilitatorUrl`, `cdpSecretName`, `reservedConcurrency` (default `10`), `budgetEmail`, `budgetUsd` (default `10`).
