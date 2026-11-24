@@ -107,7 +107,7 @@ npm run typecheck                                 # app and infra
 BUYER_KEY_FILE=/tmp/x402-buyer.key BASE_URL=http://localhost:8787 npm run e2e:sepolia
 ```
 
-By default the script pays all four paid routes with `@x402/fetch` (arguments: GET paths, or `"POST <path> <json>"`) and prints status, the decoded `PAYMENT-RESPONSE` (with the transaction hash) and the buyer's USDC balance before and after.
+The script pays both routes with `@x402/fetch` and prints status, the decoded `PAYMENT-RESPONSE` (with the transaction hash) and the buyer's USDC balance before and after.
 
 ## Deploy (AWS CDK)
 
