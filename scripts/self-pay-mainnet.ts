@@ -32,6 +32,10 @@ const sm = new SecretsManagerClient({ region: "ap-northeast-1" });
 const secret = JSON.parse(
   (await sm.send(new GetSecretValueCommand({ SecretId: "x402/buyer-wallet" }))).SecretString ?? "{}",
 );
+// Shape check only; the key itself is never printed.
+if (!/^0x[0-9a-fA-F]{64}$/.test(String(secret.privateKey)) || !/^0x[0-9a-fA-F]{40}$/.test(String(secret.address))) {
+  throw new Error('secret x402/buyer-wallet must be JSON {"privateKey":"0x<64 hex>","address":"0x<40 hex>"}');
+}
 const account = privateKeyToAccount(secret.privateKey);
 if (account.address !== secret.address) throw new Error("secret privateKey does not derive the stored address");
 
