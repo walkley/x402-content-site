@@ -25,4 +25,7 @@ new ApiStack(app, ctx("stackName") ?? "X402CnWorkdayApi", {
   budgetEmail: ctx("budgetEmail"),
   budgetUsd: Number(ctx("budgetUsd") ?? 10),
   publicBaseUrl: ctx("publicBaseUrl"),
+  noBudget: ctx("noBudget") === "true",
+  // ~300k invocations/day is about $1-2 of API Gateway, Lambda, log and egress cost; see README "Cost breaker".
+  breakerDailyInvocations: Number(ctx("breakerDailyInvocations") ?? 300_000),
 });

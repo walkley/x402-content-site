@@ -29,14 +29,19 @@ const date = process.argv[2] ?? "2026-10-01";
 if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`date must be YYYY-MM-DD, got ${date}`);
 
 const sm = new SecretsManagerClient({ region: "ap-northeast-1" });
-const secret = JSON.parse(
-  (await sm.send(new GetSecretValueCommand({ SecretId: "x402/buyer-wallet" }))).SecretString ?? "{}",
-);
+const secretString = (await sm.send(new GetSecretValueCommand({ SecretId: "x402/buyer-wallet" }))).SecretString ?? "{}";
+let secret: { privateKey?: unknown; address?: unknown };
+try {
+  secret = JSON.parse(secretString) ?? {};
+} catch {
+  // Fixed message: JSON.parse's own error quotes the start of the input, which could be part of a key.
+  throw new Error("secret x402/buyer-wallet is not valid JSON");
+}
 // Shape check only; the key itself is never printed.
 if (!/^0x[0-9a-fA-F]{64}$/.test(String(secret.privateKey)) || !/^0x[0-9a-fA-F]{40}$/.test(String(secret.address))) {
   throw new Error('secret x402/buyer-wallet must be JSON {"privateKey":"0x<64 hex>","address":"0x<40 hex>"}');
 }
-const account = privateKeyToAccount(secret.privateKey);
+const account = privateKeyToAccount(secret.privateKey as `0x${string}`);
 if (account.address !== secret.address) throw new Error("secret privateKey does not derive the stored address");
 
 const publicClient = createPublicClient({ chain: base, transport: http() });
