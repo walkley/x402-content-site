@@ -89,8 +89,9 @@ export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
     name: "package_advisories",
     title: "Package vulnerability advisories",
     description:
-      `Is this package version safe to install? Known advisories (CVE, GHSA, PYSEC, GO, RUSTSEC) for one exact ${ECOSYSTEMS.join(", ")} ` +
-      "package version from OSV.dev: CVSS, affected ranges, fixed versions and links. " +
+      `Is this package version safe to install? Dependency check for install safety before npm install, pip install or cargo add, for one exact ${ECOSYSTEMS.join(", ")} ` +
+      "package version. Known OSV.dev advisories (CVE, GHSA, PYSEC, GO, RUSTSEC vulnerabilities and OpenSSF malicious-package MAL- entries) " +
+      "with CVSS, affected ranges, fixed versions and links. " +
       (d.paidOnly
         ? "Pay-per-call over x402: the tool answers with a payment link to the paid URL."
         : `Free for ${d.perIpDaily} calls per day (shared with cn_workday_check), then pay-per-call over x402.`),
