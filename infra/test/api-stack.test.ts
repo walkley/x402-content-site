@@ -315,3 +315,38 @@ describe("cost alert on mainnet", () => {
     t.resourceCountIs("AWS::Budgets::Budget", 1);
   });
 });
+
+describe("facilitator=cdp", () => {
+  const smStatements = (t: Template) =>
+    Object.values(t.findResources("AWS::IAM::Policy")).flatMap((p) =>
+      (p.Properties.PolicyDocument.Statement as { Action: string | string[]; Resource: unknown }[]).filter((st) =>
+        [st.Action].flat().some((a) => a.startsWith("secretsmanager:")),
+      ),
+    );
+
+  it("passes FACILITATOR and CDP_SECRET_NAME and grants read on that one secret only, without creating it", () => {
+    const t = Template.fromStack(stack({ facilitator: "cdp", cdpSecretName: "x402-content-site/cdp-api-key" }, "CdpStack"));
+    t.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ FACILITATOR: "cdp", CDP_SECRET_NAME: "x402-content-site/cdp-api-key" }) },
+    });
+    // The stack creates only the quota HMAC secret; the CDP key secret is created by a person.
+    t.resourceCountIs("AWS::SecretsManager::Secret", 1);
+    const sm = smStatements(t);
+    expect(sm).toHaveLength(2); // quota HMAC key + CDP key
+    const cdp = sm.find((st) => JSON.stringify(st.Resource).includes("cdp-api-key"))!;
+    expect([cdp.Action].flat().sort()).toEqual(["secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue"]);
+    // Name-based ARN with Secrets Manager's 6-character suffix wildcard, in this stack's region and account.
+    expect(JSON.stringify(cdp.Resource)).toMatch(/:secretsmanager:ap-northeast-1:.*:secret:x402-content-site\/cdp-api-key-\?\?\?\?\?\?"/);
+  });
+
+  it("payai sets no CDP_SECRET_NAME and grants no CDP secret read", () => {
+    // The real secret name, so a grant made regardless of facilitator would show up here.
+    const t = Template.fromStack(stack({ facilitator: "payai", cdpSecretName: "x402-content-site/cdp-api-key" }, "PayaiStack"));
+    const fn = Object.values(t.findResources("AWS::Lambda::Function")).find((r) => r.Properties.Environment?.Variables?.FACILITATOR)!;
+    expect(fn.Properties.Environment.Variables.FACILITATOR).toBe("payai");
+    expect(fn.Properties.Environment.Variables.CDP_SECRET_NAME).toBeUndefined();
+    const sm = smStatements(t);
+    expect(sm).toHaveLength(1); // the quota HMAC key only
+    expect(JSON.stringify(sm)).not.toContain("cdp-api-key");
+  });
+});
