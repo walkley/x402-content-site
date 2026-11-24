@@ -2,7 +2,7 @@
 
 Pay-per-call data APIs for AI agents, paid in USDC over [x402](https://www.x402.org). The first product answers one question that generic holiday APIs get wrong: **is this date a working day in mainland China?** It applies the State Council's annual holiday notice, including weekend makeup workdays (调休补班).
 
-The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs on AWS Lambda (Node 22) behind a Lambda Function URL, defined with AWS CDK in `infra/`. Locally it runs as a plain Node server.
+The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs on AWS Lambda (Node 22) behind an Amazon API Gateway REST API, defined with AWS CDK in `infra/`. Locally it runs as a plain Node server.
 
 ## Endpoints
 
@@ -96,7 +96,15 @@ npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=cdp     # ma
 
 Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`, `facilitatorUrl`, `cdpSecretName`, `reservedConcurrency` (default `10`), `budgetEmail`, `budgetUsd` (default `10`).
 
-The stack is one arm64 Lambda (256 MB, 30 s timeout, logs kept 90 days, JSON log format) with a public Function URL, printed as the `ApiUrl` output. The function has **10 reserved concurrent executions**, so a flood of free 402/400 responses cannot use up the account's concurrency or run up cost; extra requests get throttled (HTTP 429). AWS requires at least 10 unreserved executions to remain in the account, so a new account whose concurrency quota is still 10 must first request a higher Lambda concurrency quota (Service Quotas, free).
+The stack is one arm64 Lambda (256 MB, 25 s timeout, under API Gateway's 29 s integration timeout; logs kept 90 days, JSON log format) behind a regional API Gateway REST API with a Lambda proxy integration (`ANY /` and `ANY /{proxy+}`). The public base URL is `https://<api-id>.execute-api.<region>.amazonaws.com/prod`, printed as the `ApiUrl` output and passed to the function as `PUBLIC_BASE_URL` (unless `-c publicBaseUrl` is given). There is no Lambda Function URL. The function's only invoke permission is for `apigateway.amazonaws.com` with a `SourceArn` on this API's `prod` stage; the console test-invoke grant is not created.
+
+Two limits stop a flood of free 402/400 responses from running up cost. The `prod` stage throttles every method to **10 requests per second with a burst of 20**; extra requests get HTTP 429 from API Gateway before reaching Lambda. The function also has **10 reserved concurrent executions**, so it cannot use up the account's concurrency. AWS requires at least 10 unreserved executions to remain in the account, so a new account whose concurrency quota is still 10 must first request a higher Lambda concurrency quota (Service Quotas, free).
+
+The proxy integration passes request headers (`PAYMENT-SIGNATURE`, `X-PAYMENT`), the query string and `HEAD` requests to the app unchanged, and returns its response headers (`PAYMENT-REQUIRED`, `PAYMENT-RESPONSE`) unchanged. `src/lambda.ts` builds the request URL from the stage path, so the x402 `resource` URL includes `/prod` and can be called as is.
+
+**Roll back forward only.** Do not `git revert` this entry change and redeploy: the earlier template creates a Lambda Function URL with `AuthType NONE` and two `lambda:InvokeFunction*` permissions for principal `*`, which makes the function publicly callable without API Gateway's throttling. To undo a bad deploy, fix forward on the API Gateway template, or redeploy an earlier commit that already has the API Gateway entry.
+
+Optional, not in the stack: AWS WAF. A regional web ACL associated with the `prod` stage can add per-IP rate rules and managed rule groups. It costs money (about $5 per web ACL per month, $1 per rule per month, plus $0.60 per million requests), so it is left to the operator to decide and add.
 
 With `-c budgetEmail=you@example.com` the stack also creates an account-wide monthly AWS Budgets cost budget of `budgetUsd` (default $10) that emails at 80% and 100% of actual spend and when the forecast passes 100%. Without `budgetEmail` no budget is created.
 

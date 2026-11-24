@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
-import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
+import { Aws, CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
+import { EndpointType, LambdaRestApi } from "aws-cdk-lib/aws-apigateway";
 import { CfnBudget } from "aws-cdk-lib/aws-budgets";
-import { Architecture, FunctionUrlAuthType, LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
+import { Architecture, LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
@@ -23,7 +24,7 @@ export interface ApiStackProps extends StackProps {
   budgetUsd: number;
 }
 
-/** One Lambda (Node 22, arm64) behind a public Lambda Function URL. */
+/** One Lambda (Node 22, arm64) behind an API Gateway REST API (Lambda proxy integration, stage `prod`). */
 export class ApiStack extends Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -37,7 +38,9 @@ export class ApiStack extends Stack {
       architecture: Architecture.ARM_64,
       memorySize: 256,
       reservedConcurrentExecutions: props.reservedConcurrency,
-      timeout: Duration.seconds(30), // settlement waits for the facilitator to land the tx
+      // Settlement waits for the facilitator to land the tx. Kept under API Gateway's 29 s integration timeout, so a
+      // request that settles is never answered 504 by the gateway after the buyer was charged.
+      timeout: Duration.seconds(25),
       logGroup,
       // JSON format keeps the funnel lines queryable in CloudWatch Logs Insights.
       loggingFormat: LoggingFormat.JSON,
@@ -75,7 +78,23 @@ export class ApiStack extends Stack {
       });
     }
 
-    const url = fn.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
-    new CfnOutput(this, "ApiUrl", { value: url.url });
+    // No Lambda Function URL: the only public entry is this REST API, whose stage throttling caps the request rate.
+    // The integration grants lambda:InvokeFunction to apigateway.amazonaws.com with a SourceArn on this API's
+    // `prod` stage only (allowTestInvoke: false drops the console test-invoke grant).
+    const stageName = "prod";
+    const api = new LambdaRestApi(this, "Api", {
+      handler: fn,
+      proxy: true, // ANY on / and /{proxy+}: GET, HEAD and query strings reach the app unchanged
+      integrationOptions: { allowTestInvoke: false },
+      endpointConfiguration: { types: [EndpointType.REGIONAL] },
+      cloudWatchRole: false, // no account-wide API Gateway logging role
+      deployOptions: { stageName, throttlingRateLimit: 10, throttlingBurstLimit: 20 },
+    });
+
+    // The app needs its public base URL (with the stage) for /openapi.json and /llms.txt. Built from the RestApi
+    // id rather than api.url, because api.url references the stage, which depends on the function (a cycle).
+    const apiUrl = `https://${api.restApiId}.execute-api.${this.region}.${Aws.URL_SUFFIX}/${stageName}`;
+    if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", apiUrl);
+    new CfnOutput(this, "ApiUrl", { value: `${apiUrl}/` });
   }
 }
