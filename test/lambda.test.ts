@@ -126,7 +126,7 @@ describe("package advisories behind the HTTP API", () => {
     const ok = await call(withBody(httpEvent("POST", "/deps/advisories/batch", null), body) as never);
     expect(ok.statusCode).toBe(402);
     expect(decodePaymentRequiredHeader(header(ok, "payment-required")!).accepts[0].amount).toBe("20000");
-    const bad = await call(withBody(httpEvent("POST", "/deps/advisories/batch", null), "{}") as never);
+    const bad = await call(withBody(httpEvent("POST", "/deps/advisories/batch", null), '{"packages":[]}') as never);
     expect(bad.statusCode).toBe(400);
     expect(JSON.parse(bad.body).error).toBe("invalid_body");
   });

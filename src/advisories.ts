@@ -11,7 +11,7 @@ export const OSV_TIMEOUT_MS = 5_000;
 export const CACHE_TTL_MS = 60 * 60 * 1000;
 export const CACHE_MAX_ENTRIES = 5_000;
 export const MAX_BATCH = 50;
-/** Wall-clock budget for all OSV.dev calls of one paid request; leaves time to settle before the gateway's 29 s limit. */
+/** Wall-clock budget for all OSV.dev calls of one paid request; leaves time to settle before the HTTP API's 30 s integration timeout. */
 export const UPSTREAM_DEADLINE_MS = 15_000;
 const MAX_PAGES = 5; // OSV paginates very large results; cap the pages per package.
 /** Upper bound on OSV.dev page requests one paid batch can trigger (first pages included). */

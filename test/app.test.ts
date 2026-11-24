@@ -245,10 +245,23 @@ describe("bare probes (no input at all) get a 402 quote, not a 400", () => {
     expect(facilitator.verifyCalls + facilitator.settleCalls + osv.upstreamCalls).toBe(0);
   });
 
-  it("a bare POST with whitespace only is also quoted", async () => {
-    const { app } = setup({ verify: true, settle: true });
-    const res = await app.request("/deps/advisories/batch", { method: "POST", body: "  \n", headers: { "content-type": "application/json" } });
+  it.each(["  \n", "{}", " { } "])("a bare POST body %j is also quoted", async (body) => {
+    const { app, facilitator } = setup({ verify: true, settle: true });
+    const res = await app.request("/deps/advisories/batch", { method: "POST", body, headers: { "content-type": "application/json" } });
     expect(res.status).toBe(402);
+    expect(facilitator.verifyCalls + facilitator.settleCalls).toBe(0);
+  });
+
+  it("an empty-object batch body that carries a payment is validated (400), never verified or settled", async () => {
+    const { app, facilitator } = setup({ verify: true, settle: true });
+    const res = await app.request("/deps/advisories/batch", {
+      method: "POST",
+      body: "{}",
+      headers: { ...UA, "content-type": "application/json", "payment-signature": "e30=" },
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_body" });
+    expect(facilitator.verifyCalls + facilitator.settleCalls).toBe(0);
   });
 
   it("a bare request that carries a payment is validated and rejected free, never verified or settled", async () => {
@@ -434,7 +447,8 @@ describe("package advisories endpoints", () => {
     ["/deps/advisories?ecosystem=npm&version=1.0.0", "GET", undefined, "invalid_name"],
     ["/deps/advisories?ecosystem=npm&name=lodash", "GET", undefined, "invalid_version"],
     ["/deps/advisories/batch", "POST", "not json", "invalid_body"],
-    ["/deps/advisories/batch", "POST", "{}", "invalid_body"],
+    ["/deps/advisories/batch", "POST", '{"packages":[]}', "invalid_body"],
+    ["/deps/advisories/batch", "POST", "[]", "invalid_body"],
     ["/deps/advisories/batch", "POST", batchBody(51), "batch_too_large"],
   ])("%s %s %s -> free 400 %s", async (path, method, body, code) => {
     const { app } = setup({ verify: true, settle: true }, new OsvClient(fakeOsvFetch().fn));

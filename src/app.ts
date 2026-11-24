@@ -118,12 +118,20 @@ async function batchQuery(c: Context) {
 
 /**
  * A request with no input at all (no query string, or an empty body on POST). Discovery tools probe paid routes this
- * way and expect a 402, so such a request is quoted instead of rejected. Input that is present but invalid still gets
+ * way and expect a 402, so such a request is quoted instead of rejected. On POST, an empty JSON object counts as bare. Input that is present but invalid still gets
  * a free 400.
  */
 async function isBareRequest(c: Context, method: "GET" | "POST") {
   if (method === "GET") return new URL(c.req.url).search.length <= 1;
-  return (await c.req.text()).trim() === ""; // Hono caches the text; batchQuery's c.req.json() reuses it.
+  const text = (await c.req.text()).trim(); // Hono caches the text; batchQuery's c.req.json() reuses it.
+  if (text === "") return true;
+  // Some probes POST an empty JSON object ({ } with whitespace); {"packages":[]} has a key and stays a 400.
+  try {
+    const body: unknown = JSON.parse(text);
+    return typeof body === "object" && body !== null && !Array.isArray(body) && Object.keys(body).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Paid routes and their free pre-payment input validation. */
