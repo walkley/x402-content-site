@@ -92,3 +92,43 @@ describe("REST API (stage prod) adapter", () => {
     expect(r.body).toBe("");
   });
 });
+
+describe("package advisories behind the REST API stage", () => {
+  const withBody = (e: ReturnType<typeof restEvent>, body: string) => ({
+    ...e,
+    body,
+    headers: { ...e.headers, "Content-Type": "application/json" },
+    multiValueHeaders: { ...e.multiValueHeaders, "Content-Type": ["application/json"] },
+  });
+
+  it("GET /deps/advisories returns 402 with a callable /prod resource URL", async () => {
+    const r = await call(restEvent("GET", "/deps/advisories", { ecosystem: "npm", name: "lodash", version: "4.17.20" }));
+    expect(r.statusCode).toBe(402);
+    const pr = decodePaymentRequiredHeader(header(r, "payment-required")!);
+    expect(pr.resource.url).toContain(`https://${HOST}/prod/deps/advisories`);
+    expect(pr.accepts[0].amount).toBe("5000");
+  });
+
+  it("POST /deps/advisories/batch passes the JSON body through: 402 when valid, free 400 when not", async () => {
+    const body = JSON.stringify({ packages: [{ ecosystem: "npm", name: "lodash", version: "4.17.20" }] });
+    const ok = await call(withBody(restEvent("POST", "/deps/advisories/batch", null), body) as never);
+    expect(ok.statusCode).toBe(402);
+    expect(decodePaymentRequiredHeader(header(ok, "payment-required")!).accepts[0].amount).toBe("20000");
+    const bad = await call(withBody(restEvent("POST", "/deps/advisories/batch", null), "{}") as never);
+    expect(bad.statusCode).toBe(400);
+    expect(JSON.parse(bad.body).error).toBe("invalid_body");
+  });
+
+  it("exposes the x402 headers via CORS and answers preflight", async () => {
+    const r = await call(restEvent("GET", "/cn/workday", { date: "2026-02-14" }, { Origin: "https://agent.example" }));
+    expect(header(r, "access-control-expose-headers")?.toLowerCase()).toContain("payment-required");
+    const pre = await call(
+      restEvent("OPTIONS", "/deps/advisories/batch", null, {
+        Origin: "https://agent.example",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type,payment-signature",
+      }),
+    );
+    expect(pre.statusCode).toBe(204);
+  });
+});
