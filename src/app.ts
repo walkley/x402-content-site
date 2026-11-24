@@ -27,6 +27,8 @@ import {
 } from "./content-deps.js";
 import { calendar } from "./data.js";
 import { FunnelLogger } from "./funnel.js";
+import { mcpHandler, mcpManifest } from "./mcp.js";
+import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
 import {
   CDP_FACILITATOR_URL,
   FACILITATOR_URLS,
@@ -81,6 +83,10 @@ export interface AppConfig {
   facilitatorInitTimeoutMs?: number;
   /** Time from request start by which verify/settle must have answered. Default REQUEST_DEADLINE_MS. */
   requestDeadlineMs?: number;
+  /** Free MCP quota. Unset: no free tier, every MCP tool call gets the paid hint. */
+  quota?: FreeQuota;
+  /** Origins allowed to call /mcp from a browser. Default none: a request with an Origin header gets 403. */
+  mcpAllowedOrigins?: string[];
 }
 
 /**
@@ -114,7 +120,15 @@ export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig 
   if (kind === "x402org" && network === MAINNET_NETWORK) {
     throw new Error("the x402.org facilitator is testnet only; use FACILITATOR=cdp or payai on Base mainnet");
   }
-  const base = { network, payTo, facilitatorKind: kind, publicBaseUrl: env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || undefined };
+  const base = {
+    network,
+    payTo,
+    facilitatorKind: kind,
+    publicBaseUrl: env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || undefined,
+    quota: quotaFromEnv(env, fetchSecret),
+    // Comma-separated browser origins allowed to call /mcp; empty (the default) refuses every request with Origin.
+    mcpAllowedOrigins: (env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean),
+  };
   if (kind === "cdp") {
     return { ...base, facilitatorUrl: CDP_FACILITATOR_URL, facilitatorConfig: cdpFacilitatorConfig(cdpCredentialLoader(env, fetchSecret)) };
   }
@@ -459,7 +473,9 @@ export function createApp(cfg: AppConfig) {
     businessDaysPrice: BUSINESS_DAYS_PRICE,
     advisoriesPrice: ADVISORIES_PRICE,
     batchPrice: BATCH_PRICE,
+    freePerIpDaily: cfg.quota?.perIpDaily ?? FREE_PER_IP_DAILY,
   };
+  const freeLimits = { perIpDaily: prices.freePerIpDaily, globalDaily: cfg.quota?.globalDaily ?? FREE_GLOBAL_DAILY };
   const baseUrl = (c: Context) => cfg.publicBaseUrl ?? new URL(c.req.url).origin;
 
   const app = new Hono<{ Variables: { failure?: string } }>();
@@ -469,16 +485,26 @@ export function createApp(cfg: AppConfig) {
   });
 
   // Browser-based agents must be able to read the x402 headers and send the payment header cross-origin.
-  app.use(
-    "*",
-    cors({
-      origin: "*",
-      allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "X-PAYMENT"],
-      exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
-      maxAge: 86400,
-    }),
-  );
+  const publicCors = cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "X-PAYMENT"],
+    exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
+    maxAge: 86400,
+  });
+  app.use("*", (c, next) => (c.req.path === "/mcp" ? next() : publicCors(c, next)));
+
+  // /mcp: Streamable HTTP requires validating Origin (DNS rebinding, and a web page spending its visitors' free quota).
+  // MCP clients such as Claude Code send no Origin. A listed origin gets CORS for that origin only, never "*".
+  const mcpOrigins = cfg.mcpAllowedOrigins ?? [];
+  app.use("/mcp", async (c, next) => {
+    const origin = c.req.header("origin");
+    if (origin !== undefined && !mcpOrigins.includes(origin)) {
+      return c.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `Origin ${origin} is not allowed` } }, 403);
+    }
+    return next();
+  });
+  app.use("/mcp", cors({ origin: mcpOrigins, allowMethods: ["POST", "OPTIONS"], allowHeaders: ["Content-Type", "MCP-Protocol-Version"], maxAge: 86400 }));
 
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
@@ -490,6 +516,13 @@ export function createApp(cfg: AppConfig) {
   app.get("/favicon.ico", (c) =>
     c.body(FAVICON_ICO, 200, { "Content-Type": "image/x-icon", "Cache-Control": "public, max-age=86400" }),
   );
+  app.get("/.well-known/mcp.json", (c) => c.json(mcpManifest(baseUrl(c), { ...freeLimits, prices })));
+
+  // Free MCP endpoint: outside /cn/* and /deps/*, so the payment middleware never runs on it.
+  app.use("/mcp", bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
+  app.post("/mcp", mcpHandler({ osv, quota: cfg.quota, ...freeLimits, prices, baseUrl }));
+  // Stateless and JSON-only: no SSE stream to open (GET) and no session to end (DELETE).
+  app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ error: "method_not_allowed", message: "POST one JSON-RPC message" }, 405, { Allow: "POST" }));
   app.get("/health", (c) =>
     c.json({ ok: true, network: cfg.network, facilitator: cfg.facilitatorKind, data_updated: calendar.dataUpdated }),
   );
@@ -531,7 +564,11 @@ export function createApp(cfg: AppConfig) {
     }
   });
 
-  return Object.assign(app, { initFacilitator });
+  /** Loads the free quota's HMAC key during Lambda init; never throws (MCP calls fail closed until it loads). */
+  const initQuota = async () => {
+    await cfg.quota?.init?.();
+  };
+  return Object.assign(app, { initFacilitator, initQuota });
 }
 
 /** Rejects after ms; the abandoned promise keeps running and its result is ignored. */

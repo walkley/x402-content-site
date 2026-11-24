@@ -152,3 +152,29 @@ describe("package advisories behind the HTTP API", () => {
     expect(pre.statusCode).toBe(204);
   });
 });
+
+describe("free MCP endpoint behind the HTTP API", () => {
+  it("counts the quota by requestContext.http.sourceIp, not X-Forwarded-For", async () => {
+    const seen: string[] = [];
+    const mcp = handle(
+      createApp({
+        network: NETWORK,
+        payTo: "0x96B16408be584E863Ab3f05703059e302c474f0A",
+        facilitatorKind: "x402org",
+        facilitatorUrl: "http://unused",
+        facilitator,
+        publicBaseUrl: `https://${HOST}`,
+        funnel: new FunnelLogger(() => {}),
+        quota: { perIpDaily: 20, globalDaily: 2000, consume: async (ip) => (seen.push(ip), "ok") },
+      }),
+    );
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "cn_workday_check", arguments: { date: "2026-10-01" } } });
+    const e = httpEvent("POST", "/mcp", null, { "content-type": "application/json", "x-forwarded-for": "10.9.9.9" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const r = (await mcp({ ...e, body } as never)) as Result;
+    log.mockRestore();
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.body).result.structuredContent).toMatchObject({ date: "2026-10-01", kind: "public_holiday" });
+    expect(seen).toEqual(["203.0.113.1"]);
+  });
+});

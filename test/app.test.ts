@@ -332,7 +332,13 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
     const { app } = setup({ verify: true, settle: true });
     const llms = await (await app.request("/llms.txt")).text();
     const h2 = llms.split("\n").filter((l) => l.startsWith("## "));
-    expect(h2).toEqual(["## Use from Claude Code / Cursor / Codex", "## China Workday Calendar", "## Package Vulnerability Advisories", "## Free"]);
+    expect(h2).toEqual([
+      "## Use from Claude Code / Cursor / Codex",
+      "## MCP server (free daily quota)",
+      "## China Workday Calendar",
+      "## Package Vulnerability Advisories",
+      "## Free",
+    ]);
     expect(llms.match(/scheme "exact"/g)).toHaveLength(1);
     expect(llms).toContain("$0.0004 per package");
   });

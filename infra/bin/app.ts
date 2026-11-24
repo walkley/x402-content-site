@@ -28,4 +28,7 @@ new ApiStack(app, ctx("stackName") ?? "X402CnWorkdayApi", {
   noBudget: ctx("noBudget") === "true",
   // ~300k invocations/day is about $1-2 of API Gateway, Lambda, log and egress cost; see README "Cost breaker".
   breakerDailyInvocations: Number(ctx("breakerDailyInvocations") ?? 300_000),
+  // Free MCP tier (POST /mcp): calls per source IP per UTC day, and a cap for everyone together.
+  freePerIpDaily: Number(ctx("freePerIpDaily") ?? 20),
+  freeGlobalDaily: Number(ctx("freeGlobalDaily") ?? 2000),
 });

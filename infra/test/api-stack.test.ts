@@ -13,6 +13,8 @@ const BASE: Omit<ApiStackProps, "env"> = {
   budgetUsd: 10,
   noBudget: true,
   breakerDailyInvocations: 300_000,
+  freePerIpDaily: 20,
+  freeGlobalDaily: 2000,
 };
 const stack = (overrides: Partial<ApiStackProps> = {}, id = "TestStack") =>
   new ApiStack(new App(), id, { env: { region: "ap-northeast-1" }, ...BASE, ...overrides });
@@ -61,7 +63,7 @@ describe("ApiStack", () => {
     const perms = Object.values(template.findResources("AWS::Lambda::Permission")).filter(
       (p) => JSON.stringify(p.Properties.FunctionName).includes(apiFnId),
     );
-    expect(perms.length).toBeGreaterThan(0);
+    expect(perms).toHaveLength(1); // one invoke permission, for this HTTP API only
     for (const p of perms) {
       expect(p.Properties.Principal).toBe("apigateway.amazonaws.com");
       expect(p.Properties.Action).toBe("lambda:InvokeFunction");
@@ -81,6 +83,64 @@ describe("ApiStack", () => {
     expect(json).not.toMatch(/"Principal":"\*"/);
     expect(json).not.toMatch(/"AWS":"\*"/);
     expect(json).not.toContain("InvokeFunctionUrl");
+  });
+});
+
+describe("free MCP quota table", () => {
+  const tableId = logicalId("AWS::DynamoDB::Table", "FreeQuotaTable");
+
+  it("is on-demand, keyed by pk, with TTL on expires_at", () => {
+    template.resourceCountIs("AWS::DynamoDB::Table", 1);
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      BillingMode: "PAY_PER_REQUEST",
+      KeySchema: [{ AttributeName: "pk", KeyType: "HASH" }],
+      TimeToLiveSpecification: { AttributeName: "expires_at", Enabled: true },
+    });
+  });
+
+  it("only the API function's role may touch it, and only with UpdateItem on this table", () => {
+    const roleId = (template.findResources("AWS::Lambda::Function")[apiFnId].Properties.Role["Fn::GetAtt"] as string[])[0];
+    const policies = Object.values(template.findResources("AWS::IAM::Policy"));
+    const dynamo = policies.flatMap((p) =>
+      (p.Properties.PolicyDocument.Statement as { Action: string | string[]; Resource: unknown }[])
+        .filter((st) => [st.Action].flat().some((a) => a.startsWith("dynamodb:")))
+        .map((st) => ({ roles: p.Properties.Roles, st })),
+    );
+    expect(dynamo).toHaveLength(1);
+    expect(dynamo[0].roles).toEqual([{ Ref: roleId }]);
+    expect([dynamo[0].st.Action].flat()).toEqual(["dynamodb:UpdateItem"]);
+    expect(dynamo[0].st.Resource).toEqual([{ "Fn::GetAtt": [tableId, "Arn"] }]);
+    expect(JSON.stringify(template.findResources("AWS::DynamoDB::Table"))).not.toContain("ResourcePolicy");
+  });
+
+  it("passes the table name and the limits to the API function", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ QUOTA_TABLE: { Ref: tableId }, FREE_PER_IP_DAILY: "20", FREE_GLOBAL_DAILY: "2000" }) },
+    });
+    expect(() => stack({ freeGlobalDaily: -1 }, "BadQuota")).toThrow(/freeGlobalDaily/);
+  });
+
+  it("generates the HMAC key secret, readable only by the API function, and passes its ARN", () => {
+    const secretId = logicalId("AWS::SecretsManager::Secret", "QuotaHmacKey");
+    template.resourceCountIs("AWS::SecretsManager::Secret", 1);
+    template.hasResourceProperties("AWS::SecretsManager::Secret", {
+      GenerateSecretString: { PasswordLength: 64, ExcludePunctuation: true },
+    });
+    expect(template.findResources("AWS::SecretsManager::Secret")[secretId].Properties.SecretString).toBeUndefined(); // no value in the template
+    const roleId = (template.findResources("AWS::Lambda::Function")[apiFnId].Properties.Role["Fn::GetAtt"] as string[])[0];
+    const sm = Object.values(template.findResources("AWS::IAM::Policy")).flatMap((p) =>
+      (p.Properties.PolicyDocument.Statement as { Action: string | string[]; Resource: unknown }[])
+        .filter((st) => [st.Action].flat().some((a) => a.startsWith("secretsmanager:")))
+        .map((st) => ({ roles: p.Properties.Roles, st })),
+    );
+    expect(sm).toHaveLength(1);
+    expect(sm[0].roles).toEqual([{ Ref: roleId }]);
+    expect([sm[0].st.Action].flat().sort()).toEqual(["secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue"]);
+    expect(sm[0].st.Resource).toEqual({ Ref: secretId });
+    template.resourceCountIs("AWS::SecretsManager::ResourcePolicy", 0);
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ QUOTA_HMAC_SECRET_ARN: { Ref: secretId } }) },
+    });
   });
 });
 

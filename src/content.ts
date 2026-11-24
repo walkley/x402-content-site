@@ -16,6 +16,7 @@ import {
   OSV_ATTRIBUTION,
 } from "./content-deps.js";
 import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
+import { PRIVACY_NOTE, mcpAddCommand } from "./mcp.js";
 
 export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
@@ -106,6 +107,8 @@ export interface PriceInfo {
   businessDaysPrice: string;
   advisoriesPrice: string;
   batchPrice: string;
+  /** Free MCP tool calls per source IP per day. */
+  freePerIpDaily: number;
 }
 
 /** Structured x-payment-info (x402scan / AgentCash discovery spec v1). */
@@ -229,6 +232,20 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           },
         },
       },
+      "/mcp": {
+        post: {
+          summary: `MCP server, Streamable HTTP, stateless JSON-RPC (free, ${p.freePerIpDaily} tool calls per IP per day, then the tool error names the paid x402 route)`,
+          description: `Tools cn_workday_check and package_advisories. Add with: ${mcpAddCommand(baseUrl)}`,
+          security: [],
+          requestBody: { required: true, content: { "application/json": { schema: { type: "object", description: "One JSON-RPC 2.0 message (initialize, tools/list, tools/call, ping)" } } } },
+          responses: {
+            "200": { description: "JSON-RPC response", content: { "application/json": { schema: { type: "object" } } } },
+            "202": { description: "Notification accepted, no body" },
+            "400": { description: "Not a JSON-RPC message, or unsupported MCP-Protocol-Version" },
+          },
+        },
+      },
+      "/.well-known/mcp.json": free("MCP server manifest: endpoint, tools, free quota and prices (free)"),
       "/health": free("Liveness check (free)"),
       "/llms.txt": free("Agent-oriented summary of these APIs (free)"),
       "/SKILL.md": free("Agent skill (AgentSkills SKILL.md): endpoints, prices, examples and how to pay (free)"),
@@ -247,6 +264,11 @@ export const agentcashCommands = (baseUrl: string) => [
   "npx agentcash onboard",
 ];
 export const INSTALL_HEADING = "Use from Claude Code / Cursor / Codex";
+export const MCP_HEADING = "MCP server (free daily quota)";
+/** One paragraph on the free MCP endpoint, shared by the preview page, llms.txt and SKILL.md. */
+export const mcpBlurb = (baseUrl: string, p: PriceInfo) =>
+  `Remote MCP server (Streamable HTTP) at ${baseUrl}/mcp with tools cn_workday_check and package_advisories. ` +
+  `${p.freePerIpDaily} free calls per IP address per day, no sign-up. After that each tool call returns an error naming the x402 URL and price of the same lookup. ${PRIVACY_NOTE}`;
 
 export function llmsTxt(baseUrl: string, p: PriceInfo): string {
   return `# ${SITE_NAME}
@@ -258,6 +280,12 @@ export function llmsTxt(baseUrl: string, p: PriceInfo): string {
 ${agentcashCommands(baseUrl).join("\n")}
 
 \`add\` needs no wallet; \`try\` and \`onboard\` create an AgentCash wallet on first run. Agent skill: ${baseUrl}/SKILL.md
+
+## ${MCP_HEADING}
+
+${mcpAddCommand(baseUrl)}
+
+${mcpBlurb(baseUrl, p)} Manifest: ${baseUrl}/.well-known/mcp.json
 
 ## ${SERVICE_NAME}
 
@@ -307,6 +335,9 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <h2>${INSTALL_HEADING}</h2>
 <p>Run in your terminal to add these APIs to your agent with <a href="https://github.com/Merit-Systems/agentcash">AgentCash</a>; any other x402 client works too. <code>add</code> needs no wallet; <code>try</code> and <code>onboard</code> create an AgentCash wallet on first run.</p>
 <pre>${agentcashCommands(baseUrl).map(esc).join("\n")}</pre>
+<h3>${MCP_HEADING}</h3>
+<pre>${esc(mcpAddCommand(baseUrl))}</pre>
+<p>${esc(mcpBlurb(baseUrl, p))} Manifest: <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
 </section>
 <p>Pay-per-call data for AI agents, paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>. Full schemas: <a href="/openapi.json">/openapi.json</a>. Agent summary: <a href="/llms.txt">/llms.txt</a>. Agent skill: <a href="/SKILL.md">/SKILL.md</a>.</p>
 <table><tr><th>Endpoint</th><th>Price</th></tr>
@@ -362,6 +393,12 @@ Base URL: ${baseUrl}
 ${agentcashCommands(baseUrl).map((c) => `    ${c}`).join("\n")}
 
 \`add\` registers this origin with AgentCash and installs a small skill that runs \`npx agentcash discover\`; it needs no wallet. \`try\` and \`onboard\` create an AgentCash wallet on first run. You do not need AgentCash: any x402 v2 client works (see Payment).
+
+## ${MCP_HEADING}
+
+    ${mcpAddCommand(baseUrl)}
+
+${mcpBlurb(baseUrl, p)}
 
 ## Endpoints
 
