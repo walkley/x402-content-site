@@ -16,6 +16,20 @@ import {
   OSV_ATTRIBUTION,
 } from "./content-deps.js";
 import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
+import {
+  INSIDER_TRADES_DESCRIPTION,
+  INSIDER_TRADES_EXAMPLE_INPUT,
+  INSIDER_TRADES_EXAMPLE_OUTPUT,
+  INSIDER_TRADES_INPUT_SCHEMA,
+  INSIDER_TRADES_OUTPUT_SCHEMA,
+  LATEST_FILINGS_DESCRIPTION,
+  LATEST_FILINGS_EXAMPLE_INPUT,
+  LATEST_FILINGS_EXAMPLE_OUTPUT,
+  LATEST_FILINGS_INPUT_SCHEMA,
+  LATEST_FILINGS_OUTPUT_SCHEMA,
+  SEC_ATTRIBUTION,
+  SEC_SERVICE_NAME,
+} from "./content-sec.js";
 import { PAID_MCP_PATH, PRIVACY_NOTE, mcpAddCommand } from "./mcp.js";
 
 export const SERVICE_NAME = "China Workday Calendar";
@@ -107,6 +121,8 @@ export interface PriceInfo {
   businessDaysPrice: string;
   advisoriesPrice: string;
   batchPrice: string;
+  insiderTradesPrice: string;
+  latestFilingsPrice: string;
   /** Free MCP tool calls per source IP per day. */
   freePerIpDaily: number;
 }
@@ -139,6 +155,11 @@ export function openApi(baseUrl: string, p: PriceInfo) {
   const upstream = { description: "Facilitator unavailable or returned an error. Not charged; retry later." };
   const osvDown = { description: "OSV.dev unavailable, timed out (5 s) or returned an error, or the facilitator failed. Not charged; retry later." };
   const depsErr = { description: "Invalid ecosystem, name, version or batch body. Not charged." };
+  const secErr = { description: "Invalid ticker, cik, form or limit. Not charged." };
+  const secNotFound = { description: "Ticker or CIK not known to SEC EDGAR (checked after payment). Not charged." };
+  const secDown = { description: "SEC EDGAR unavailable, timed out or returned an error, or the facilitator failed. Not charged; retry later." };
+  const secParams = (schema: { properties: Record<string, unknown> }) =>
+    Object.entries(schema.properties).map(([name, s]) => ({ name, in: "query", required: false, schema: s }));
   // security: [] marks a route as public; paid routes are marked by x-payment-info.
   const free = (summary: string) => ({ get: { summary, security: [], responses: { "200": { description: "ok" } } } });
   return {
@@ -148,8 +169,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       version: "1.2.0",
       description:
         // `npx agentcash add` copies this unquoted into YAML frontmatter, so no ": " or " #" (test/app.test.ts checks).
-        `Pay-per-call x402 APIs (USDC). ${SERVICE_NAME} — is a date a working day in mainland China, with official holidays and makeup workdays (调休). ` +
-        `${DEPS_SERVICE_NAME} — is this npm, PyPI, Go, crates.io or Maven package version safe to install; batch ${perPackagePrice(p.batchPrice)} per package.`,
+        `Pay-per-call x402 APIs (USDC). ${SERVICE_NAME} — is a date a working day in mainland China (holidays, 调休). ` +
+        `${DEPS_SERVICE_NAME} — is an npm, PyPI, Go, crates.io or Maven version safe to install; batch ${perPackagePrice(p.batchPrice)}/package. ` +
+        `SEC EDGAR — insider trading (Form 4) and filings by ticker.`,
       contact: { name: "Source and issues", url: REPO_URL },
       "x-guidance":
         "Call a paid route without payment to get a 402 with the price; pay with x402 v2 (exact, USDC) and retry with PAYMENT-SIGNATURE. " +
@@ -160,6 +182,7 @@ export function openApi(baseUrl: string, p: PriceInfo) {
     tags: [
       { name: SERVICE_NAME, description: `Data ${calendar.firstDate}..${calendar.lastDate} from State Council (国务院) holiday notices on gov.cn, updated ${calendar.dataUpdated}.` },
       { name: DEPS_SERVICE_NAME, description: OSV_ATTRIBUTION },
+      { name: SEC_SERVICE_NAME, description: SEC_ATTRIBUTION },
     ],
     paths: {
       "/cn/workday": {
@@ -229,6 +252,40 @@ export function openApi(baseUrl: string, p: PriceInfo) {
             "400": depsErr,
             "402": paid(p.batchPrice),
             "502": osvDown,
+          },
+        },
+      },
+      "/sec/insider-trades": {
+        get: {
+          summary: INSIDER_TRADES_DESCRIPTION,
+          description: "Pass exactly one of ticker or cik.",
+          tags: [SEC_SERVICE_NAME],
+          "x-payment-info": paymentInfo(p.insiderTradesPrice),
+          "x-x402-price": p.insiderTradesPrice,
+          parameters: secParams(INSIDER_TRADES_INPUT_SCHEMA),
+          responses: {
+            "200": ok("Form 4 insider transactions, newest filing first", INSIDER_TRADES_OUTPUT_SCHEMA, INSIDER_TRADES_EXAMPLE_OUTPUT),
+            "400": secErr,
+            "402": paid(p.insiderTradesPrice),
+            "404": secNotFound,
+            "502": secDown,
+          },
+        },
+      },
+      "/sec/latest-filings": {
+        get: {
+          summary: LATEST_FILINGS_DESCRIPTION,
+          description: "Pass exactly one of ticker or cik.",
+          tags: [SEC_SERVICE_NAME],
+          "x-payment-info": paymentInfo(p.latestFilingsPrice),
+          "x-x402-price": p.latestFilingsPrice,
+          parameters: secParams(LATEST_FILINGS_INPUT_SCHEMA),
+          responses: {
+            "200": ok("Latest filings, newest first", LATEST_FILINGS_OUTPUT_SCHEMA, LATEST_FILINGS_EXAMPLE_OUTPUT),
+            "400": secErr,
+            "402": paid(p.latestFilingsPrice),
+            "404": secNotFound,
+            "502": secDown,
           },
         },
       },
@@ -311,6 +368,18 @@ ${JSON.stringify(ADVISORIES_EXAMPLE_OUTPUT)}
 
 ${OSV_ATTRIBUTION}
 
+## ${SEC_SERVICE_NAME}
+
+Insider trading and SEC filings for US public companies, by stock ticker or CIK, from SEC EDGAR.
+
+- [GET ${baseUrl}/sec/insider-trades?ticker=AAPL](${baseUrl}/sec/insider-trades?ticker=AAPL): ${p.insiderTradesPrice}. ${INSIDER_TRADES_DESCRIPTION}
+- [GET ${baseUrl}/sec/latest-filings?ticker=AAPL&form=8-K&limit=2](${baseUrl}/sec/latest-filings?ticker=AAPL&form=8-K&limit=2): ${p.latestFilingsPrice}. ${LATEST_FILINGS_DESCRIPTION}
+
+An unknown ticker or CIK returns 404 and is not charged. Example: GET /sec/insider-trades?${new URLSearchParams(INSIDER_TRADES_EXAMPLE_INPUT)} returns (trimmed to one transaction)
+${JSON.stringify(INSIDER_TRADES_EXAMPLE_OUTPUT)}
+
+${SEC_ATTRIBUTION}
+
 ## Free
 
 - [OpenAPI](${baseUrl}/openapi.json): full input/output JSON schema and examples
@@ -346,7 +415,9 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <tr><td><code>GET /cn/workday?date=YYYY-MM-DD</code></td><td>${esc(p.workdayPrice)}</td></tr>
 <tr><td><code>GET /cn/business-days?from=YYYY-MM-DD&amp;to=YYYY-MM-DD</code> (≤ ${MAX_RANGE_DAYS} days)</td><td>${esc(p.businessDaysPrice)}</td></tr>
 <tr><td><code>GET /deps/advisories?ecosystem=&amp;name=&amp;version=</code></td><td>${esc(p.advisoriesPrice)}</td></tr>
-<tr><td><code>POST /deps/advisories/batch</code> (≤ ${MAX_BATCH} packages)</td><td>${esc(p.batchPrice)}</td></tr></table>
+<tr><td><code>POST /deps/advisories/batch</code> (≤ ${MAX_BATCH} packages)</td><td>${esc(p.batchPrice)}</td></tr>
+<tr><td><code>GET /sec/insider-trades?ticker=</code> (or <code>cik=</code>)</td><td>${esc(p.insiderTradesPrice)}</td></tr>
+<tr><td><code>GET /sec/latest-filings?ticker=&amp;form=&amp;limit=</code></td><td>${esc(p.latestFilingsPrice)}</td></tr></table>
 <h1>${SERVICE_NAME}</h1>
 <p>中国法定节假日与调休工作日查询。A pay-per-call API for AI agents: is a date a working day in mainland China, counting official holidays and weekend makeup workdays (调休补班) from State Council notices. Paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>.</p>
 <p>Coverage <b>${calendar.firstDate}</b> to <b>${calendar.lastDate}</b>. Data updated <b>${calendar.dataUpdated}</b>.</p>
@@ -366,6 +437,16 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <pre>${esc(JSON.stringify(ADVISORIES_EXAMPLE_OUTPUT, null, 2))}</pre>
 <h2>Sources and licenses</h2>
 <p>${esc(OSV_ATTRIBUTION)} See <a href="https://google.github.io/osv.dev/data/">OSV.dev data sources</a>.</p>
+<h1>${SEC_SERVICE_NAME}</h1>
+<p>${esc(INSIDER_TRADES_DESCRIPTION)}</p>
+<p>${esc(LATEST_FILINGS_DESCRIPTION)}</p>
+<h2>Example</h2>
+<p><code>GET ${esc(baseUrl)}/sec/insider-trades?ticker=AAPL</code> (trimmed to one transaction)</p>
+<pre>${esc(JSON.stringify(INSIDER_TRADES_EXAMPLE_OUTPUT, null, 2))}</pre>
+<p><code>GET ${esc(baseUrl)}/sec/latest-filings?${esc(new URLSearchParams(LATEST_FILINGS_EXAMPLE_INPUT).toString())}</code></p>
+<pre>${esc(JSON.stringify(LATEST_FILINGS_EXAMPLE_OUTPUT, null, 2))}</pre>
+<h2>Source</h2>
+<p>${esc(SEC_ATTRIBUTION)}</p>
 <p><a href="${REPO_URL}">Source code and data</a></p>
 </body></html>`;
 }
@@ -376,7 +457,9 @@ export const SKILL_DESCRIPTION =
   "with official public holidays and weekend makeup workdays from State Council (国务院) notices, each answer linking the gov.cn source; " +
   "count working days between two dates. 中国法定节假日、调休、补班、工作日判断、工作日天数计算，附国务院通知原文链接。 " +
   "2) Package vulnerability advisories: is this npm, PyPI, Go, crates.io or Maven package version safe to install (CVE, GHSA, fixed versions, OSV.dev); " +
-  "npm/PyPI 等包安全公告、依赖漏洞检查。Use when a task needs China business days or holiday schedules, or before adding or upgrading a dependency.";
+  "npm/PyPI 等包安全公告、依赖漏洞检查。 " +
+  "3) SEC EDGAR: insider trading (Form 4 buys and sells by directors and officers) and latest SEC filings (8-K, 10-K, 10-Q) for a US stock ticker. " +
+  "Use when a task needs China business days or holiday schedules, before adding or upgrading a dependency, or to check insider trades and recent SEC filings of a company.";
 
 export function skillMd(baseUrl: string, p: PriceInfo, sources: { year: number; source_url: string }[]): string {
   const sourceList = sources.map((s) => `- ${s.year}: ${s.source_url}`).join("\n");
@@ -430,6 +513,18 @@ ${BATCH_DESCRIPTION}
 
 Example: \`POST ${baseUrl}/deps/advisories/batch\` with JSON body \`${batchBody}\` (up to ${MAX_BATCH} packages).
 
+### GET /sec/insider-trades?ticker= (or cik=) (${p.insiderTradesPrice})
+
+${INSIDER_TRADES_DESCRIPTION}
+
+Example: \`GET ${baseUrl}/sec/insider-trades?${new URLSearchParams(INSIDER_TRADES_EXAMPLE_INPUT)}\` returns \`transactions\` with insider, code, shares and price.
+
+### GET /sec/latest-filings?ticker=&form=&limit= (${p.latestFilingsPrice})
+
+${LATEST_FILINGS_DESCRIPTION}
+
+Example: \`GET ${baseUrl}/sec/latest-filings?${new URLSearchParams(LATEST_FILINGS_EXAMPLE_INPUT)}\` returns the two latest 8-K filings with their items.
+
 Full input and output schemas: ${baseUrl}/openapi.json
 
 ## Payment
@@ -445,6 +540,8 @@ China calendar data follows the State Council General Office (国务院办公厅
 ${sourceList}
 
 ${OSV_ATTRIBUTION}
+
+${SEC_ATTRIBUTION}
 
 Source code and data: ${REPO_URL}
 `;

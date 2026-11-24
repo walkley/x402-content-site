@@ -8,6 +8,8 @@ import { SKILL_DESCRIPTION, perPackagePrice } from "../src/content.js";
 import { FunnelLogger } from "../src/funnel.js";
 import { OsvClient } from "../src/advisories.js";
 import { fakeOsvFetch } from "./helpers/osv.js";
+import { SecClient } from "../src/sec.js";
+import { fakeSecFetch } from "./helpers/sec.js";
 
 const PAY_TO = "0x96B16408be584E863Ab3f05703059e302c474f0A";
 const PAYER = "0x41836Aaa4799D787a0f02D22Ff584C3d72aC979a";
@@ -35,7 +37,7 @@ class FakeFacilitator implements FacilitatorClient {
   }
 }
 
-function setup(mode: { verify: boolean; settle: boolean | "throw" }, osv?: OsvClient) {
+function setup(mode: { verify: boolean; settle: boolean | "throw" }, osv?: OsvClient, sec?: SecClient) {
   const lines: string[] = [];
   const facilitator = new FakeFacilitator(mode);
   const app = createApp({
@@ -46,6 +48,7 @@ function setup(mode: { verify: boolean; settle: boolean | "throw" }, osv?: OsvCl
     facilitator,
     funnel: new FunnelLogger((l) => lines.push(l)),
     osv,
+    sec,
   });
   const events = () => lines.map((l) => JSON.parse(l));
   return { app, facilitator, lines, events };
@@ -296,6 +299,8 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
       "/cn/business-days": ["get", "0.005"],
       "/deps/advisories": ["get", "0.005"],
       "/deps/advisories/batch": ["post", "0.02"],
+      "/sec/insider-trades": ["get", "0.003"],
+      "/sec/latest-filings": ["get", "0.003"],
     } as const;
     for (const [path, [method, amount]] of Object.entries(paid)) {
       const op = oa.paths[path][method];
@@ -349,6 +354,7 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
       "## MCP server (free daily quota)",
       "## China Workday Calendar",
       "## Package Vulnerability Advisories",
+      "## SEC EDGAR Insider Trades and Filings",
       "## Free",
     ]);
     expect(llms.match(/scheme "exact"/g)).toHaveLength(1);
@@ -744,5 +750,114 @@ describe("CORS", () => {
     const res = await paidRequest(app, "/cn/workday?date=2026-02-14");
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-expose-headers")!.toLowerCase()).toContain("payment-response");
+  });
+});
+
+describe("SEC EDGAR endpoints", () => {
+  const AAPL = "/sec/insider-trades?ticker=AAPL";
+  const secClient = (opts: Parameters<typeof fakeSecFetch>[0] = {}) => new SecClient("x402-content-site https://api.example", fakeSecFetch(opts).fn, Date.now, async () => {});
+
+  it.each([
+    [AAPL, "3000"],
+    ["/sec/latest-filings?ticker=AAPL&form=8-K&limit=2", "3000"],
+    ["/sec/insider-trades", "3000"], // bare probe
+  ])("%s without payment returns 402 with accepts, Bazaar declaration and no SEC call", async (path, amount) => {
+    const sec = secClient();
+    const { app } = setup({ verify: true, settle: true }, undefined, sec);
+    const res = await app.request(path, { headers: UA });
+    expect(res.status).toBe(402);
+    const required = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
+    expect(required.accepts[0]).toMatchObject({ scheme: "exact", network: NETWORK, payTo: PAY_TO, amount, asset: USDC_BASE_SEPOLIA });
+    expect(required.resource).toMatchObject({ serviceName: "SEC EDGAR Insider Trades and Filings" });
+    expect(required.resource.description).toMatch(/insider trading|SEC filings/i);
+    const bazaar = required.extensions?.bazaar as { info: { input: { method: string }; output: { example: unknown } } };
+    expect(bazaar.info.input.method).toBe("GET");
+    expect(bazaar.info.output.example).toBeTruthy();
+    const body = await res.json();
+    expect(body.accepts).toEqual(required.accepts); // 402 body repeats the header quote
+    expect(body.price).toBe("$0.003");
+    expect(sec.upstreamCalls).toBe(0);
+  });
+
+  it.each([
+    ["/sec/insider-trades?ticker=AAPL&cik=320193", "invalid_arguments"],
+    ["/sec/insider-trades?ticker=A%20B", "invalid_ticker"],
+    ["/sec/insider-trades?cik=x", "invalid_cik"],
+    ["/sec/insider-trades?src=mcp", "invalid_arguments"],
+    ["/sec/latest-filings?ticker=AAPL&limit=99", "invalid_limit"],
+  ])("%s -> free 400 %s", async (path, code) => {
+    const { app } = setup({ verify: true, settle: true }, undefined, secClient());
+    const res = await app.request(path, { headers: UA });
+    expect(res.status).toBe(400);
+    expect(res.headers.get("payment-required")).toBeNull();
+    expect(await res.json()).toMatchObject({ error: code });
+  });
+
+  it("paid insider trades return Form 4 transactions and settle once; src=mcp is logged", async () => {
+    const sec = secClient();
+    const { app, events, facilitator } = setup({ verify: true, settle: true }, undefined, sec);
+    const res = await paidRequest(app, `${AAPL}&src=mcp`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.issuer.name).toBe("Apple Inc.");
+    expect(body.filings_checked).toBe(4);
+    expect(body.transactions[0]).toMatchObject({ code: "S", shares: 2398, price_per_share: 352.77, reporting_owners: [{ name: "Newstead Jennifer" }] });
+    expect(body.source).toContain("SEC EDGAR");
+    expect(decodePaymentResponseHeader(res.headers.get("payment-response")!).success).toBe(true);
+    expect(facilitator.settleCalls).toBe(1);
+    const stages = events().map((e) => e.stage);
+    expect(stages).toContain("content_returned");
+    expect(events().find((e) => e.stage === "request")).toMatchObject({ route: "/sec/insider-trades", src: "mcp" });
+  });
+
+  it("paid latest filings return the 8-K list", async () => {
+    const { app } = setup({ verify: true, settle: true }, undefined, secClient());
+    const res = await paidRequest(app, "/sec/latest-filings?ticker=AAPL&form=8-K&limit=2");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.count).toBe(2);
+    expect(body.filings[1].items[0]).toEqual({ item: "2.02", title: "Results of Operations and Financial Condition" });
+  });
+
+  it("unknown ticker after payment: 404, nothing settled, handler_error logged", async () => {
+    const { app, events, facilitator } = setup({ verify: true, settle: true }, undefined, secClient());
+    const res = await paidRequest(app, "/sec/insider-trades?ticker=ZZZZ");
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("unknown_ticker");
+    expect(res.headers.get("payment-response")).toBeNull();
+    expect(facilitator.verifyCalls).toBe(1);
+    expect(facilitator.settleCalls).toBe(0);
+    expect(events().find((e) => e.stage === "handler_error")).toMatchObject({ status: 404, reason: "not_found: unknown_ticker" });
+  });
+
+  it.each(["timeout", "500", "403", "network", "badjson"] as const)("SEC %s: 502, nothing settled, no content", async (fail) => {
+    const { app, events, facilitator } = setup({ verify: true, settle: true }, undefined, secClient({ fail }));
+    const res = await paidRequest(app, AAPL);
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toBe("upstream_unavailable");
+    expect(body.transactions).toBeUndefined();
+    expect(res.headers.get("payment-response")).toBeNull();
+    expect(facilitator.settleCalls).toBe(0);
+    const stages = events().map((e) => e.stage);
+    expect(stages).toContain("handler_error");
+    expect(stages).not.toContain("settle_ok");
+  });
+
+  it("openapi, llms.txt, SKILL.md and the preview page describe the SEC endpoints with prices and the no-endorsement note", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const oa = await (await app.request("/openapi.json")).json();
+    expect(oa.paths["/sec/insider-trades"].get["x-x402-price"]).toBe("$0.003");
+    expect(oa.paths["/sec/latest-filings"].get["x-x402-price"]).toBe("$0.003");
+    expect(oa.paths["/sec/insider-trades"].get.responses["404"]).toBeTruthy();
+    expect(oa.paths["/sec/insider-trades"].get.parameters.map((p: { name: string }) => p.name)).toEqual(["ticker", "cik"]);
+    expect(oa.info.description).toContain("insider trading (Form 4)");
+    for (const path of ["/llms.txt", "/", "/SKILL.md"]) {
+      const text = await (await app.request(path)).text();
+      expect(text).toContain("/sec/insider-trades");
+      expect(text).toContain("/sec/latest-filings");
+      expect(text).toContain("Form 4");
+      expect(text).toContain("not affiliated with or endorsed by the U.S. Securities and Exchange Commission");
+    }
   });
 });
