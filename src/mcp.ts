@@ -3,12 +3,17 @@
 // daily quota; when the quota is used up, or cannot be counted, the tool answers with an error that names the paid
 // x402 route and carries a payment link to it. POST /paid/mcp is the same server without the free quota: every valid
 // tool call gets that payment link. Neither path ever verifies or settles a payment.
+// sec_insider_trades has no free calls on either path: it never calls SEC, it only validates and returns the payment
+// link to GET /sec/insider-trades. The SEC call budget (infra SEC_THROTTLE: at most 8 SEC requests per second for the
+// whole API) is spent by the throttled paid routes alone; /mcp's own throttle is not part of that sum.
 import type { Context, MiddlewareHandler } from "hono";
 import { InputError, MAX_RANGE_DAYS } from "./calendar.js";
 import { ECOSYSTEMS, UpstreamError, parsePackageQuery, type OsvClient } from "./advisories.js";
 import type { PriceInfo } from "./content.js"; // type only: content.ts imports this module
 import { ADVISORIES_INPUT_SCHEMA } from "./content-deps.js";
+import { INSIDER_TRADES_INPUT_SCHEMA } from "./content-sec.js";
 import { calendar } from "./data.js";
+import { parseCompanyQuery } from "./sec.js";
 import type { FreeQuota } from "./quota.js";
 
 export const MCP_SERVER_NAME = "cn-calendar";
@@ -60,6 +65,23 @@ const DATE = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
 /** Today's date (YYYY-MM-DD) in mainland China. Asia/Shanghai is a fixed UTC+8 with no daylight saving time. */
 export const chinaToday = (now = Date.now()) => new Date(now + 8 * 3_600_000).toISOString().slice(0, 10);
 
+export const SEC_TOOL = "sec_insider_trades";
+/** Ticker used when sec_insider_trades gets no arguments (directory probers send {} when no property is required). */
+export const SEC_DEFAULT_TICKER = "AAPL";
+const { ticker: TICKER_PROP, cik: CIK_PROP } = INSIDER_TRADES_INPUT_SCHEMA.properties;
+// cik without per-property examples: a prober that merges every property's examples would send {ticker, cik}, which
+// the tool refuses. The object-level examples show both forms.
+const { examples: _cikExamples, ...CIK_NO_EXAMPLES } = CIK_PROP;
+const SEC_TOOL_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    ticker: { ...TICKER_PROP, description: `${TICKER_PROP.description} Default: ${SEC_DEFAULT_TICKER}, when ticker and cik are both omitted.`, default: SEC_DEFAULT_TICKER },
+    cik: CIK_NO_EXAMPLES,
+  },
+  additionalProperties: false,
+  examples: [{ ticker: SEC_DEFAULT_TICKER }, { cik: "320193" }],
+};
+
 export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
   {
     name: "cn_workday_check",
@@ -95,7 +117,19 @@ export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
       (d.paidOnly
         ? "Pay-per-call over x402: the tool answers with a payment link to the paid URL."
         : `Free for ${d.perIpDaily} calls per day (shared with cn_workday_check), then pay-per-call over x402.`),
-    inputSchema: ADVISORIES_INPUT_SCHEMA,
+    // Whole valid argument objects too, as on cn_workday_check (the shared schema is also the HTTP route's).
+    inputSchema: { ...ADVISORIES_INPUT_SCHEMA, examples: [{ ecosystem: "npm", name: "lodash", version: "4.17.20" }] },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: SEC_TOOL,
+    title: "SEC insider trades (Form 4)",
+    description:
+      "Recent insider trading for a US public company: SEC Form 4 filings parsed into structured JSON (insider name and role, " +
+      "transaction date and code, shares, price, shares owned after, Rule 10b5-1 flag, filing link), by stock ticker or SEC CIK. " +
+      "Pay-per-call over x402, no free calls: the tool validates the arguments and answers with a payment link to the paid URL " +
+      "GET /sec/insider-trades.",
+    inputSchema: SEC_TOOL_INPUT_SCHEMA,
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
 ];
@@ -116,7 +150,10 @@ const textResult = (text: string, isError = false, structured?: unknown) => ({
  */
 function paidRoute(name: string, args: Json, base: string, p: McpPrices) {
   const q = (o: Record<string, unknown>) =>
-    new URLSearchParams([...Object.entries(o).map(([k, v]) => [k, String(v)]), ["src", MCP_SRC]]).toString();
+    new URLSearchParams([...Object.entries(o).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]), ["src", MCP_SRC]]).toString();
+  if (name === SEC_TOOL) {
+    return { url: `${base}/sec/insider-trades?${q({ ticker: args.ticker, cik: args.cik })}`, price: p.insiderTradesPrice };
+  }
   if (name === "package_advisories") {
     return { url: `${base}/deps/advisories?${q({ ecosystem: args.ecosystem, name: args.name, version: args.version })}`, price: p.advisoriesPrice };
   }
@@ -136,6 +173,12 @@ function prepare(name: string, args: Json, osv: OsvClient): () => Promise<unknow
     if (!hasRange) throw new InputError("invalid_arguments", "pass date (YYYY-MM-DD), or from and to");
     calendar.validateRange(args.from, args.to);
     return async () => ({ ...calendar.businessDays(args.from, args.to), data_updated: calendar.dataUpdated });
+  }
+  if (name === SEC_TOOL) {
+    parseCompanyQuery(args);
+    return async () => {
+      throw new Error(`${SEC_TOOL} has no free calls`); // never run: callTool answers with the payment link first
+    };
   }
   const query = parsePackageQuery(args);
   return () => osv.query(query);
@@ -201,6 +244,7 @@ export function mcpHandler(d: McpDeps) {
     global_limit: `the free tier's daily cap of ${d.globalDaily} calls for all users is reached`,
     unavailable: "the free tier is unavailable right now",
     paid_only: `this endpoint (${PAID_MCP_PATH}) has no free tier`,
+    paid_tool: `${SEC_TOOL} has no free calls (SEC EDGAR lookups are paid only)`,
   };
 
   async function callTool(c: Context, params: Json): Promise<{ error: [number, string] } | { result: unknown }> {
@@ -208,7 +252,7 @@ export function mcpHandler(d: McpDeps) {
     let args = (params.arguments ?? {}) as Json;
     const f = fieldsOf(c);
     f.tool = clip(name, CLIENT_FIELD_MAX);
-    if (name !== "cn_workday_check" && name !== "package_advisories") {
+    if (name !== "cn_workday_check" && name !== "package_advisories" && name !== SEC_TOOL) {
       Object.assign(f, { outcome: "invalid_request", reason: "unknown_tool" });
       return { error: [-32602, `Unknown tool: ${String(name)}`] };
     }
@@ -220,6 +264,7 @@ export function mcpHandler(d: McpDeps) {
     if (name === "cn_workday_check" && args.date === undefined && args.from === undefined && args.to === undefined) {
       args = { ...args, date: chinaToday() };
     }
+    if (name === SEC_TOOL && args.ticker === undefined && args.cik === undefined) args = { ...args, ticker: SEC_DEFAULT_TICKER };
     let run: () => Promise<unknown>;
     try {
       run = prepare(name, args, d.osv);
@@ -229,10 +274,12 @@ export function mcpHandler(d: McpDeps) {
       return { result: textResult(`${e.code}: ${e.message}. Not counted against the free quota.`, true) };
     }
 
-    let outcome: "ok" | "ip_limit" | "global_limit" | "unavailable" | "paid_only";
+    let outcome: "ok" | "ip_limit" | "global_limit" | "unavailable" | "paid_only" | "paid_tool";
     const ip = sourceIpOf(c);
     if (d.paidOnly) {
       outcome = "paid_only";
+    } else if (name === SEC_TOOL) {
+      outcome = "paid_tool"; // the free quota is not read or counted
     } else if (!d.quota || !ip) {
       outcome = "unavailable";
       f.reason = d.quota ? "no_source_ip" : "no_quota_store";
@@ -258,7 +305,13 @@ export function mcpHandler(d: McpDeps) {
         `2. Add these paid APIs to your agent: npx agentcash add ${base}\n` +
         `3. Call it pay-per-call over x402 (USDC on Base, network ${d.prices.network}, scheme exact; any x402 v2 client can pay):\n` +
         `GET ${paid.url}\nPrice: ${paid.price} USDC per call.\n` +
-        `Why: ${outcome === "paid_only" ? `${reasonText[outcome]}; the free quota is at ${base}/mcp` : `free MCP quota, ${reasonText[outcome]}`}. Docs: ${base}/llms.txt`;
+        `Why: ${
+          outcome === "paid_only"
+            ? `${reasonText[outcome]}; the free quota is at ${base}/mcp`
+            : outcome === "paid_tool"
+              ? reasonText[outcome]
+              : `free MCP quota, ${reasonText[outcome]}`
+        }. Docs: ${base}/llms.txt`;
       // Payment link (paidmcp's {url, status: 402, challenge}): the challenge is the paid route's own 402 quote, so its
       // price, payTo and network cannot differ from what that URL charges. Paying happens on the URL, never here.
       const challenge = await d.quote?.(paid.url);
@@ -316,11 +369,12 @@ export function mcpHandler(d: McpDeps) {
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: MCP_SERVER_NAME, title: MCP_TITLE, version: MCP_VERSION },
             instructions: d.paidOnly
-              ? `China workday calendar (holidays and 调休 makeup workdays) and package vulnerability advisories. ` +
+              ? `China workday calendar (holidays and 调休 makeup workdays), package vulnerability advisories and SEC insider trades. ` +
                 `Paid endpoint, no free calls: each tool call returns a payment link {url, status: 402, challenge} in structuredContent; ` +
                 `pay that URL over x402 (HTTP). Free quota: ${d.baseUrl(c)}/mcp.`
-              : `China workday calendar (holidays and 调休 makeup workdays) and package vulnerability advisories. ` +
-                `${d.perIpDaily} free tool calls per IP per day; after that each tool error names the paid x402 URL and price.`,
+              : `China workday calendar (holidays and 调休 makeup workdays), package vulnerability advisories and SEC insider trades. ` +
+                `${d.perIpDaily} free tool calls per IP per day; after that each tool error names the paid x402 URL and price. ` +
+                `${SEC_TOOL} has no free calls: it always answers with the payment link.`,
           }),
         );
       }
@@ -343,7 +397,8 @@ export function mcpManifest(baseUrl: string, d: Pick<McpDeps, "perIpDaily" | "gl
   return {
     name: MCP_REGISTRY_NAME,
     title: MCP_TITLE,
-    description: "China workday calendar (official holidays, 调休 makeup workdays) and package vulnerability advisories (OSV.dev).",
+    description:
+      "China workday calendar (official holidays, 调休 makeup workdays), package vulnerability advisories (OSV.dev) and SEC insider trades (Form 4, paid only).",
     version: MCP_VERSION,
     protocolVersions: MCP_PROTOCOL_VERSIONS,
     remotes: [{ type: "streamable-http", url: `${baseUrl}/mcp` }],
@@ -370,6 +425,7 @@ export function mcpManifest(baseUrl: string, d: Pick<McpDeps, "perIpDaily" | "gl
         cn_workday_check_date: d.prices.workdayPrice,
         cn_workday_check_range: d.prices.businessDaysPrice,
         package_advisories: d.prices.advisoriesPrice,
+        sec_insider_trades: d.prices.insiderTradesPrice,
       },
     },
     documentation: `${baseUrl}/llms.txt`,

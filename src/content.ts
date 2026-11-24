@@ -292,7 +292,7 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       "/mcp": {
         post: {
           summary: `MCP server, Streamable HTTP, stateless JSON-RPC (free, ${p.freePerIpDaily} tool calls per IP per day, then the tool error names the paid x402 route)`,
-          description: `Tools cn_workday_check and package_advisories. Add with: ${mcpAddCommand(baseUrl)}`,
+          description: `Tools cn_workday_check, package_advisories and sec_insider_trades (paid only, answers with a payment link). Add with: ${mcpAddCommand(baseUrl)}`,
           security: [],
           requestBody: { required: true, content: { "application/json": { schema: { type: "object", description: "One JSON-RPC 2.0 message (initialize, tools/list, tools/call, ping)" } } } },
           responses: {
@@ -324,8 +324,8 @@ export const INSTALL_HEADING = "Use from Claude Code / Cursor / Codex";
 export const MCP_HEADING = "MCP server (free daily quota)";
 /** One paragraph on the free MCP endpoint, shared by the preview page, llms.txt and SKILL.md. */
 export const mcpBlurb = (baseUrl: string, p: PriceInfo) =>
-  `Remote MCP server (Streamable HTTP) at ${baseUrl}/mcp with tools cn_workday_check and package_advisories. ` +
-  `${p.freePerIpDaily} free calls per IP address per day, no sign-up. After that each tool call returns an error naming the x402 URL and price of the same lookup, ` +
+  `Remote MCP server (Streamable HTTP) at ${baseUrl}/mcp with tools cn_workday_check, package_advisories and sec_insider_trades. ` +
+  `${p.freePerIpDaily} free calls per IP address per day, no sign-up (sec_insider_trades has no free calls). After that each tool call returns an error naming the x402 URL and price of the same lookup, ` +
   `with a payment link {url, status: 402, challenge} in structuredContent. ` +
   `${baseUrl}${PAID_MCP_PATH} is the same server without the free calls, for x402 MCP clients and paid-MCP directories: every tool call returns that payment link; pay the URL over x402. ${PRIVACY_NOTE}`;
 
