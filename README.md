@@ -21,7 +21,7 @@ The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs 
 | `GET /` | free | Human preview page: description, schema, examples, data update date, source links |
 | `GET /llms.txt` | free | Agent-oriented summary |
 | `GET /openapi.json`, `GET /.well-known/openapi.json` | free | OpenAPI 3.1 with full input/output schemas and examples, `x-payment-info` on each paid operation, `x-discovery.llmsTxtUrl` |
-| `GET /favicon.ico` | free | Service icon, also sent as the x402 `iconUrl` |
+| `GET /favicon.ico`, `GET /icon.png` | free | Service icon; the PNG (the same image) is sent as the x402 `iconUrl`, because CDP's listed icon formats do not include ICO |
 | `GET /health` | free | Liveness |
 | `POST /mcp` | free quota, then x402 | MCP server (Streamable HTTP, stateless), tools `cn_workday_check` and `package_advisories`, see "Free MCP endpoint" |
 | `POST /paid/mcp` | x402 (pay the linked URL) | The same MCP server without the free quota: every tool call returns a payment link to the paid route, see "Paid MCP endpoint" |

@@ -334,7 +334,23 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
       funnel: new FunnelLogger(() => {}),
     });
     const res = await withBase.request("/cn/workday");
-    expect(decodePaymentRequiredHeader(res.headers.get("payment-required")!).resource.iconUrl).toBe("https://api.example/favicon.ico");
+    expect(decodePaymentRequiredHeader(res.headers.get("payment-required")!).resource.iconUrl).toBe("https://api.example/icon.png");
+    const png = await withBase.request("/icon.png");
+    expect(png.status).toBe(200);
+    expect(png.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await png.arrayBuffer()).slice(0, 8)).toEqual(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    // SEC routes carry the same resource and bazaar fields as /cn/workday, the route PayAI already lists
+    const quote = async (path: string) => decodePaymentRequiredHeader((await withBase.request(path)).headers.get("payment-required")!);
+    const workday = await quote("/cn/workday?date=2026-02-14");
+    for (const path of ["/sec/insider-trades?ticker=AAPL", "/sec/latest-filings?ticker=AAPL"]) {
+      const q = await quote(path);
+      expect(Object.keys(q.resource).sort()).toEqual(Object.keys(workday.resource).sort());
+      expect(q.resource.iconUrl).toBe(workday.resource.iconUrl);
+      expect(Object.keys(q.extensions!.bazaar as object).sort()).toEqual(Object.keys(workday.extensions!.bazaar as object).sort());
+      const info = (b: unknown) => (b as { info: { input: object; output: object } }).info;
+      expect(Object.keys(info(q.extensions!.bazaar).input).sort()).toEqual(Object.keys(info(workday.extensions!.bazaar).input).sort());
+      expect(Object.keys(info(q.extensions!.bazaar).output).sort()).toEqual(Object.keys(info(workday.extensions!.bazaar).output).sort());
+    }
     expect((await res.json()).docs).toBe("https://api.example/openapi.json");
   });
 

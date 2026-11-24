@@ -59,6 +59,7 @@ import {
   BUSINESS_DAYS_INPUT_SCHEMA,
   BUSINESS_DAYS_OUTPUT_SCHEMA,
   FAVICON_ICO,
+  ICON_PNG,
   SERVICE_NAME,
   TAGS,
   WORKDAY_DESCRIPTION,
@@ -319,7 +320,7 @@ export function createApp(cfg: AppConfig) {
   const originOf = (ctx: HTTPRequestContext) => cfg.publicBaseUrl ?? new URL(ctx.adapter.getUrl()).origin;
   /** iconUrl, and a 402 body that a plain-fetch agent (which never decodes PAYMENT-REQUIRED) can act on. */
   const listing = (price: string, request: { method: "GET" | "POST"; path: string; body?: unknown }, response: unknown) => ({
-    ...(cfg.publicBaseUrl ? { iconUrl: `${cfg.publicBaseUrl}/favicon.ico` } : {}),
+    ...(cfg.publicBaseUrl ? { iconUrl: `${cfg.publicBaseUrl}/icon.png` } : {}),
     unpaidResponseBody: (ctx: HTTPRequestContext) => {
       const base = originOf(ctx);
       return {
@@ -595,6 +596,7 @@ export function createApp(cfg: AppConfig) {
   app.get("/favicon.ico", (c) =>
     c.body(FAVICON_ICO, 200, { "Content-Type": "image/x-icon", "Cache-Control": "public, max-age=86400" }),
   );
+  app.get("/icon.png", (c) => c.body(ICON_PNG, 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" }));
   app.get("/.well-known/mcp.json", (c) => c.json(mcpManifest(baseUrl(c), { ...freeLimits, prices })));
 
   // MCP endpoints: outside /cn/*, /deps/* and /sec/*, so the payment middleware never runs on them. Over the quota (and always

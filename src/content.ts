@@ -547,10 +547,12 @@ Source code and data: ${REPO_URL}
 `;
 }
 
-/** 32x32 icon (ICO wrapping a PNG): white frame and dot on blue. Served at /favicon.ico and used as the x402 iconUrl. */
+/** 32x32 icon (ICO wrapping a PNG): white frame and dot on blue. Served at /favicon.ico; the PNG inside is ICON_PNG. */
 export const FAVICON_ICO = Uint8Array.from(
   atob(
     "AAABAAEAICAAAAEAIACFAAAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAAAExJREFUeNpj+D/AgGHQOEA+/zVd8agDRh0w6oCh7wB0QDcHEAI0dQCxYHg6gFQw6oDh54DRXDAoCqJBURSP1oajDhh1wPB1wIjtHQMA+bT2JiCso/cAAAAASUVORK5CYII=",
   ),
   (ch) => ch.charCodeAt(0),
 );
+/** The PNG inside FAVICON_ICO (one image, data at offset 22). Served at /icon.png and used as the x402 iconUrl: CDP's listed icon formats do not include ICO. */
+export const ICON_PNG = FAVICON_ICO.subarray(22);
