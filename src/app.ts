@@ -52,6 +52,7 @@ import {
   llmsTxt,
   openApi,
   previewHtml,
+  skillMd,
   type PriceInfo,
 } from "./content.js";
 
@@ -266,6 +267,8 @@ export function createApp(cfg: AppConfig) {
       funnel.log({ stage: "settle_fail", ...m, reason: ctx.error.message, network: ctx.requirements.network });
     });
 
+  // The route description is static, so the install line needs the configured public origin (set in production).
+  const install = cfg.publicBaseUrl ? ` Install: npx agentcash add ${cfg.publicBaseUrl}` : "";
   const accepts = (price: string) => ({ scheme: "exact", price, network: cfg.network, payTo: cfg.payTo });
   const originOf = (ctx: HTTPRequestContext) => cfg.publicBaseUrl ?? new URL(ctx.adapter.getUrl()).origin;
   /** iconUrl, and a 402 body that a plain-fetch agent (which never decodes PAYMENT-REQUIRED) can act on. */
@@ -284,6 +287,7 @@ export function createApp(cfg: AppConfig) {
             "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
           docs: `${base}/openapi.json`,
           llms_txt: `${base}/llms.txt`,
+          install: `npx agentcash add ${base}`,
           example: { request: { method: request.method, url: `${base}${request.path}`, ...(request.body ? { body: request.body } : {}) }, response },
         },
       };
@@ -293,7 +297,7 @@ export function createApp(cfg: AppConfig) {
     "GET /cn/workday": {
       accepts: accepts(WORKDAY_PRICE),
       ...listing(WORKDAY_PRICE, { method: "GET", path: `/cn/workday?${new URLSearchParams(WORKDAY_EXAMPLE_INPUT)}` }, WORKDAY_EXAMPLE_OUTPUT),
-      description: WORKDAY_DESCRIPTION,
+      description: WORKDAY_DESCRIPTION + install,
       mimeType: "application/json",
       serviceName: SERVICE_NAME,
       tags: TAGS,
@@ -310,7 +314,7 @@ export function createApp(cfg: AppConfig) {
         { method: "GET", path: `/cn/business-days?${new URLSearchParams(BUSINESS_DAYS_EXAMPLE_INPUT)}` },
         BUSINESS_DAYS_EXAMPLE_OUTPUT,
       ),
-      description: BUSINESS_DAYS_DESCRIPTION,
+      description: BUSINESS_DAYS_DESCRIPTION + install,
       mimeType: "application/json",
       serviceName: SERVICE_NAME,
       tags: TAGS,
@@ -327,7 +331,7 @@ export function createApp(cfg: AppConfig) {
         { method: "GET", path: `/deps/advisories?${new URLSearchParams(ADVISORIES_EXAMPLE_INPUT)}` },
         ADVISORIES_EXAMPLE_OUTPUT,
       ),
-      description: ADVISORIES_DESCRIPTION,
+      description: ADVISORIES_DESCRIPTION + install,
       mimeType: "application/json",
       serviceName: DEPS_SERVICE_NAME,
       tags: DEPS_TAGS,
@@ -340,7 +344,7 @@ export function createApp(cfg: AppConfig) {
     "POST /deps/advisories/batch": {
       accepts: accepts(BATCH_PRICE),
       ...listing(BATCH_PRICE, { method: "POST", path: "/deps/advisories/batch", body: BATCH_EXAMPLE_INPUT }, BATCH_EXAMPLE_OUTPUT),
-      description: BATCH_DESCRIPTION,
+      description: BATCH_DESCRIPTION + install,
       mimeType: "application/json",
       serviceName: DEPS_SERVICE_NAME,
       tags: DEPS_TAGS,
@@ -480,6 +484,9 @@ export function createApp(cfg: AppConfig) {
 
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
+  app.get("/SKILL.md", (c) =>
+    c.body(skillMd(baseUrl(c), prices, calendar.sources), 200, { "Content-Type": "text/markdown; charset=utf-8" }),
+  );
   app.get("/openapi.json", (c) => c.json(openApi(baseUrl(c), prices)));
   app.get("/.well-known/openapi.json", (c) => c.json(openApi(baseUrl(c), prices)));
   app.get("/favicon.ico", (c) =>
