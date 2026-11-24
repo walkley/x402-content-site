@@ -26,8 +26,8 @@ import {
   DEPS_TAGS,
 } from "./content-deps.js";
 import { calendar } from "./data.js";
-import { FunnelLogger } from "./funnel.js";
-import { MCP_SRC, ipHashOf, mcpHandler, mcpManifest, mcpRequestLog } from "./mcp.js";
+import { FunnelLogger, type FunnelEvent } from "./funnel.js";
+import { MCP_SRC, PAID_MCP_PATH, ipHashOf, mcpHandler, mcpManifest, mcpRequestLog } from "./mcp.js";
 import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
 import {
   CDP_FACILITATOR_URL,
@@ -215,6 +215,13 @@ async function quoteInBody(c: Context) {
 function inputErrorResponse(c: Context, e: InputError) {
   return c.json({ error: e.code, message: e.message }, e.status);
 }
+
+/**
+ * Marks the in-process request MCP makes to a paid route for its payment link. Only code in this module can set it
+ * (c.env comes from the Lambda adapter, never from the client); such requests write no funnel events.
+ */
+const MCP_QUOTE = Symbol("mcp-quote");
+const isMcpQuote = (c: Context) => (c.env as { mcpQuote?: symbol } | undefined)?.mcpQuote === MCP_QUOTE;
 
 export function createApp(cfg: AppConfig) {
   const funnel = cfg.funnel ?? new FunnelLogger();
@@ -419,6 +426,7 @@ export function createApp(cfg: AppConfig) {
   const funnelAndValidate: MiddlewareHandler = async (c, next) => {
     const paid = PAID_ROUTES[c.req.path];
     if (!paid || c.req.method !== paid.method) return next();
+    const log = isMcpQuote(c) ? () => {} : (e: FunnelEvent) => funnel.log(e);
     const meta: RequestMeta = {
       route: c.req.path,
       request_id: crypto.randomUUID(),
@@ -432,12 +440,12 @@ export function createApp(cfg: AppConfig) {
       if (paymentHeader || !(await isBareRequest(c, paid.method))) await paid.validate(c);
     } catch (e) {
       if (!(e instanceof InputError)) throw e;
-      funnel.log({ stage: "request", ...meta, ...tags, status: e.status, reason: `rejected_input: ${e.code}` });
+      log({ stage: "request", ...meta, ...tags, status: e.status, reason: `rejected_input: ${e.code}` });
       return inputErrorResponse(c, e);
     }
-    funnel.log({ stage: "request", ...meta, ...tags });
+    log({ stage: "request", ...meta, ...tags });
     if (paymentHeader) {
-      funnel.log({ stage: "payment_header_received", ...meta });
+      log({ stage: "payment_header_received", ...meta });
       inflight.set(paymentHeader, meta);
     }
     try {
@@ -459,14 +467,14 @@ export function createApp(cfg: AppConfig) {
       }
       // Rejections before the facilitator was asked (bad header, wrong network...) do not hit a verify hook.
       if (paymentHeader && meta.verified === undefined) {
-        funnel.log({ stage: "verify_fail", ...meta, reason: reason ?? "payment rejected before verify" });
+        log({ stage: "verify_fail", ...meta, reason: reason ?? "payment rejected before verify" });
       }
-      funnel.log({ stage: "402_returned", ...meta, status, reason });
+      log({ stage: "402_returned", ...meta, status, reason });
     } else if (status < 400 && meta.settled) {
-      funnel.log({ stage: "content_returned", ...meta, status });
+      log({ stage: "content_returned", ...meta, status });
     } else if (status >= 500) {
       // Upstream or facilitator failure after verification: settlement is skipped, nothing is charged.
-      funnel.log({ stage: "handler_error", ...meta, status, reason: c.get("failure") ?? `http ${status}` });
+      log({ stage: "handler_error", ...meta, status, reason: c.get("failure") ?? `http ${status}` });
     }
   };
 
@@ -495,20 +503,23 @@ export function createApp(cfg: AppConfig) {
     exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
     maxAge: 86400,
   });
-  app.use("*", (c, next) => (c.req.path === "/mcp" ? next() : publicCors(c, next)));
+  app.use("*", (c, next) => (c.req.path === "/mcp" || c.req.path === PAID_MCP_PATH ? next() : publicCors(c, next)));
 
-  // /mcp: Streamable HTTP requires validating Origin (DNS rebinding, and a web page spending its visitors' free quota).
-  // MCP clients such as Claude Code send no Origin. A listed origin gets CORS for that origin only, never "*".
+  // /mcp and /paid/mcp: Streamable HTTP requires validating Origin (DNS rebinding, and a web page spending its visitors'
+  // free quota). MCP clients such as Claude Code send no Origin. A listed origin gets CORS for that origin only, never "*".
   const mcpOrigins = cfg.mcpAllowedOrigins ?? [];
-  app.use("/mcp", mcpRequestLog(cfg.quota)); // first, so every /mcp answer (403, 405, 413 too) gets its log line
-  app.use("/mcp", async (c, next) => {
-    const origin = c.req.header("origin");
-    if (origin !== undefined && !mcpOrigins.includes(origin)) {
-      return c.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `Origin ${origin} is not allowed` } }, 403);
-    }
-    return next();
-  });
-  app.use("/mcp", cors({ origin: mcpOrigins, allowMethods: ["POST", "OPTIONS"], allowHeaders: ["Content-Type", "MCP-Protocol-Version"], maxAge: 86400 }));
+  for (const path of ["/mcp", PAID_MCP_PATH]) {
+    app.use(path, mcpRequestLog(cfg.quota)); // first, so every answer (403, 405, 413 too) gets its log line
+    app.use(path, async (c, next) => {
+      const origin = c.req.header("origin");
+      if (origin !== undefined && !mcpOrigins.includes(origin)) {
+        return c.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `Origin ${origin} is not allowed` } }, 403);
+      }
+      return next();
+    });
+    app.use(path, cors({ origin: mcpOrigins, allowMethods: ["POST", "OPTIONS"], allowHeaders: ["Content-Type", "MCP-Protocol-Version"], maxAge: 86400 }));
+    app.use(path, bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
+  }
 
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
@@ -522,11 +533,24 @@ export function createApp(cfg: AppConfig) {
   );
   app.get("/.well-known/mcp.json", (c) => c.json(mcpManifest(baseUrl(c), { ...freeLimits, prices })));
 
-  // Free MCP endpoint: outside /cn/* and /deps/*, so the payment middleware never runs on it.
-  app.use("/mcp", bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
-  app.post("/mcp", mcpHandler({ osv, quota: cfg.quota, ...freeLimits, prices, baseUrl }));
-  // Stateless and JSON-only: no SSE stream to open (GET) and no session to end (DELETE).
-  app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ error: "method_not_allowed", message: "POST one JSON-RPC message" }, 405, { Allow: "POST" }));
+  // MCP endpoints: outside /cn/* and /deps/*, so the payment middleware never runs on them. Over the quota (and always
+  // on /paid/mcp) a tool call carries the paid route's own 402 quote, fetched in-process from that route and decoded.
+  const quote = async (url: string): Promise<unknown> => {
+    try {
+      const res = await app.request(url, {}, { mcpQuote: MCP_QUOTE });
+      const header = res.headers.get("payment-required");
+      return res.status === 402 && header ? decodePaymentRequiredHeader(header) : undefined;
+    } catch {
+      return undefined; // no link: the text hint still names the URL
+    }
+  };
+  const mcpDeps = { osv, ...freeLimits, prices, baseUrl, quote };
+  app.post("/mcp", mcpHandler({ ...mcpDeps, quota: cfg.quota }));
+  app.post(PAID_MCP_PATH, mcpHandler({ ...mcpDeps, quota: undefined, paidOnly: true }));
+  for (const path of ["/mcp", PAID_MCP_PATH]) {
+    // Stateless and JSON-only: no SSE stream to open (GET) and no session to end (DELETE).
+    app.on(["GET", "DELETE"], path, (c) => c.json({ error: "method_not_allowed", message: "POST one JSON-RPC message" }, 405, { Allow: "POST" }));
+  }
   app.get("/health", (c) =>
     c.json({ ok: true, network: cfg.network, facilitator: cfg.facilitatorKind, data_updated: calendar.dataUpdated }),
   );

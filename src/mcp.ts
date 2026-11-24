@@ -1,7 +1,8 @@
 // Free MCP endpoint: POST /mcp, Streamable HTTP transport, stateless, JSON responses only (no SSE stream, no session).
 // Tool calls use the same calendar data and OSV.dev client as the paid routes. Each call takes one unit of the free
 // daily quota; when the quota is used up, or cannot be counted, the tool answers with an error that names the paid
-// x402 route. This path never verifies or settles a payment.
+// x402 route and carries a payment link to it. POST /paid/mcp is the same server without the free quota: every valid
+// tool call gets that payment link. Neither path ever verifies or settles a payment.
 import type { Context, MiddlewareHandler } from "hono";
 import { InputError, MAX_RANGE_DAYS } from "./calendar.js";
 import { ECOSYSTEMS, UpstreamError, parsePackageQuery, type OsvClient } from "./advisories.js";
@@ -35,6 +36,9 @@ export const mcpAddCommand = (baseUrl: string) => `claude mcp add --transport ht
 
 type McpPrices = PriceInfo;
 
+/** The paid MCP endpoint: no free quota, every tool call answers with a payment link to the paid HTTP route. */
+export const PAID_MCP_PATH = "/paid/mcp";
+
 export interface McpDeps {
   osv: OsvClient;
   quota?: FreeQuota;
@@ -42,11 +46,18 @@ export interface McpDeps {
   globalDaily: number;
   prices: McpPrices;
   baseUrl: (c: Context) => string;
+  /** /paid/mcp: the quota is never asked, every valid tool call gets the payment link. */
+  paidOnly?: boolean;
+  /**
+   * The decoded PAYMENT-REQUIRED of the paid route at this URL (the app requests it in-process), or undefined when
+   * the route did not answer 402 with a readable header. Without it the tool error carries the text hint only.
+   */
+  quote?: (url: string) => Promise<unknown>;
 }
 
 const DATE = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
 
-export const mcpTools = (d: Pick<McpDeps, "perIpDaily">) => [
+export const mcpTools = (d: Pick<McpDeps, "perIpDaily" | "paidOnly">) => [
   {
     name: "cn_workday_check",
     title: "China workday check",
@@ -54,7 +65,7 @@ export const mcpTools = (d: Pick<McpDeps, "perIpDaily">) => [
       "Is a date a working day in mainland China? Applies State Council (国务院) holiday notices: public holidays, weekend makeup " +
       `workdays (调休补班) and ordinary weekends; returns the holiday name and the gov.cn source link. Pass date for one day, or ` +
       `from and to (inclusive, up to ${MAX_RANGE_DAYS} days) to count and list working days. Coverage ${calendar.firstDate}..${calendar.lastDate}. ` +
-      `Free for ${d.perIpDaily} calls per day, then pay-per-call over x402.`,
+      (d.paidOnly ? "Pay-per-call over x402: the tool answers with a payment link to the paid URL." : `Free for ${d.perIpDaily} calls per day, then pay-per-call over x402.`),
     inputSchema: {
       type: "object",
       properties: {
@@ -72,7 +83,9 @@ export const mcpTools = (d: Pick<McpDeps, "perIpDaily">) => [
     description:
       `Is this package version safe to install? Known advisories (CVE, GHSA, PYSEC, GO, RUSTSEC) for one exact ${ECOSYSTEMS.join(", ")} ` +
       "package version from OSV.dev: CVSS, affected ranges, fixed versions and links. " +
-      `Free for ${d.perIpDaily} calls per day (shared with cn_workday_check), then pay-per-call over x402.`,
+      (d.paidOnly
+        ? "Pay-per-call over x402: the tool answers with a payment link to the paid URL."
+        : `Free for ${d.perIpDaily} calls per day (shared with cn_workday_check), then pay-per-call over x402.`),
     inputSchema: ADVISORIES_INPUT_SCHEMA,
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
@@ -160,6 +173,7 @@ export function mcpRequestLog(quota: FreeQuota | undefined): MiddlewareHandler {
           ts: new Date().toISOString(),
           type: "mcp",
           method: "-",
+          path: c.req.path,
           http_method: c.req.method,
           status: c.res.status,
           user_agent: clip(c.req.header("user-agent"), USER_AGENT_MAX),
@@ -177,6 +191,7 @@ export function mcpHandler(d: McpDeps) {
     ip_limit: `the ${d.perIpDaily} free calls per day for your IP address are used up`,
     global_limit: `the free tier's daily cap of ${d.globalDaily} calls for all users is reached`,
     unavailable: "the free tier is unavailable right now",
+    paid_only: `this endpoint (${PAID_MCP_PATH}) has no free tier`,
   };
 
   async function callTool(c: Context, params: Json): Promise<{ error: [number, string] } | { result: unknown }> {
@@ -201,9 +216,11 @@ export function mcpHandler(d: McpDeps) {
       return { result: textResult(`${e.code}: ${e.message}. Not counted against the free quota.`, true) };
     }
 
-    let outcome: "ok" | "ip_limit" | "global_limit" | "unavailable";
+    let outcome: "ok" | "ip_limit" | "global_limit" | "unavailable" | "paid_only";
     const ip = sourceIpOf(c);
-    if (!d.quota || !ip) {
+    if (d.paidOnly) {
+      outcome = "paid_only";
+    } else if (!d.quota || !ip) {
       outcome = "unavailable";
       f.reason = d.quota ? "no_source_ip" : "no_quota_store";
     } else {
@@ -228,8 +245,12 @@ export function mcpHandler(d: McpDeps) {
         `2. Add these paid APIs to your agent: npx agentcash add ${base}\n` +
         `3. Call it pay-per-call over x402 (USDC on Base, network ${d.prices.network}, scheme exact; any x402 v2 client can pay):\n` +
         `GET ${paid.url}\nPrice: ${paid.price} USDC per call.\n` +
-        `Why: free MCP quota, ${reasonText[outcome]}. Docs: ${base}/llms.txt`;
-      return { result: textResult(text, true) };
+        `Why: ${outcome === "paid_only" ? `${reasonText[outcome]}; the free quota is at ${base}/mcp` : `free MCP quota, ${reasonText[outcome]}`}. Docs: ${base}/llms.txt`;
+      // Payment link (paidmcp's {url, status: 402, challenge}): the challenge is the paid route's own 402 quote, so its
+      // price, payTo and network cannot differ from what that URL charges. Paying happens on the URL, never here.
+      const challenge = await d.quote?.(paid.url);
+      f.payment_link = challenge !== undefined;
+      return { result: textResult(text, true, challenge !== undefined ? { url: paid.url, status: 402, challenge } : undefined) };
     }
 
     try {
@@ -281,9 +302,12 @@ export function mcpHandler(d: McpDeps) {
             protocolVersion: MCP_PROTOCOL_VERSIONS.includes(requested) ? requested : MCP_PROTOCOL_VERSIONS[0],
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: MCP_SERVER_NAME, title: MCP_TITLE, version: MCP_VERSION },
-            instructions:
-              `China workday calendar (holidays and 调休 makeup workdays) and package vulnerability advisories. ` +
-              `${d.perIpDaily} free tool calls per IP per day; after that each tool error names the paid x402 URL and price.`,
+            instructions: d.paidOnly
+              ? `China workday calendar (holidays and 调休 makeup workdays) and package vulnerability advisories. ` +
+                `Paid endpoint, no free calls: each tool call returns a payment link {url, status: 402, challenge} in structuredContent; ` +
+                `pay that URL over x402 (HTTP). Free quota: ${d.baseUrl(c)}/mcp.`
+              : `China workday calendar (holidays and 调休 makeup workdays) and package vulnerability advisories. ` +
+                `${d.perIpDaily} free tool calls per IP per day; after that each tool error names the paid x402 URL and price.`,
           }),
         );
       }
@@ -310,13 +334,20 @@ export function mcpManifest(baseUrl: string, d: Pick<McpDeps, "perIpDaily" | "gl
     version: MCP_VERSION,
     protocolVersions: MCP_PROTOCOL_VERSIONS,
     remotes: [{ type: "streamable-http", url: `${baseUrl}/mcp` }],
+    paid_mcp: {
+      type: "streamable-http",
+      url: `${baseUrl}${PAID_MCP_PATH}`,
+      purpose:
+        "Same tools without the free quota, for x402 MCP clients and directories: every tool call returns a payment link " +
+        "{url, status: 402, challenge} in structuredContent; pay that URL over x402 HTTP. Nothing is settled on this endpoint.",
+    },
     install: { claude_code: mcpAddCommand(baseUrl), agentcash: `npx agentcash add ${baseUrl}` },
     tools: mcpTools(d).map(({ name, description }) => ({ name, description })),
     free_tier: {
       calls_per_ip_per_day: d.perIpDaily,
       global_calls_per_day: d.globalDaily,
       privacy: PRIVACY_NOTE,
-      after_quota: "tool error naming the x402 pay-per-call URL and price",
+      after_quota: "tool error naming the x402 pay-per-call URL and price, with a payment link {url, status: 402, challenge} in structuredContent",
     },
     payment: {
       protocol: "x402 v2",

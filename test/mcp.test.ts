@@ -38,16 +38,20 @@ class FakeDynamo {
 
 class CountingFacilitator implements FacilitatorClient {
   calls = 0;
+  /** verify and settle only: the payment link's in-process 402 quote may sync /supported, but never verifies. */
+  paymentCalls = 0;
   async getSupported() {
     this.calls++;
     return { kinds: [{ x402Version: 2, scheme: "exact", network: NETWORK }], extensions: [], signers: {} } as never;
   }
   async verify(): Promise<never> {
     this.calls++;
+    this.paymentCalls++;
     throw new Error("verify must not be called on the free path");
   }
   async settle(): Promise<never> {
     this.calls++;
+    this.paymentCalls++;
     throw new Error("settle must not be called on the free path");
   }
 }
@@ -60,7 +64,16 @@ beforeEach(() => {
 });
 
 function setup(
-  opts: { quota?: FreeQuota | null; db?: FakeDynamo; perIp?: number; global?: number; key?: () => Promise<string>; origins?: string[] } = {},
+  opts: {
+    quota?: FreeQuota | null;
+    db?: FakeDynamo;
+    perIp?: number;
+    global?: number;
+    key?: () => Promise<string>;
+    origins?: string[];
+    path?: string;
+    facilitator?: FacilitatorClient;
+  } = {},
 ) {
   const db = opts.db ?? new FakeDynamo();
   const quota =
@@ -69,12 +82,14 @@ function setup(
       : (opts.quota ?? new DynamoQuota(db, "quota", opts.key ?? (async () => KEY), opts.perIp ?? 20, opts.global ?? 2000, () => NOW));
   const facilitator = new CountingFacilitator();
   const funnel: string[] = [];
+  const path = opts.path ?? "/mcp";
   const app = createApp({
     network: NETWORK,
     payTo: PAY_TO,
     facilitatorKind: "payai",
     facilitatorUrl: "http://unused",
-    facilitator,
+    facilitator: opts.facilitator ?? facilitator,
+    facilitatorInitTimeoutMs: 200,
     publicBaseUrl: BASE,
     funnel: new FunnelLogger((l) => funnel.push(l)),
     osv: new OsvClient(fakeOsvFetch().fn),
@@ -84,7 +99,7 @@ function setup(
   let n = 0;
   const rpc = async (method: string, params?: unknown, ip = "203.0.113.9", headers: Record<string, string> = {}, notify = false) => {
     const res = await app.request(
-      "/mcp",
+      path,
       {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
@@ -231,7 +246,7 @@ describe("MCP tools on the free quota", () => {
     expect(urlLine).toBeGreaterThan(1);
     expect(lines[urlLine + 1]).toBe("Price: $0.003 USDC per call.");
     expect(text).toContain(NETWORK);
-    expect(r.result.structuredContent).toBeUndefined();
+    expect(r.result.structuredContent).toMatchObject({ url: `${BASE}/cn/workday?date=2026-10-08&src=mcp`, status: 402 });
     // range and package calls name their own paid routes
     const range = (await call("cn_workday_check", { from: "2026-01-05", to: "2026-01-16" })).result.content[0].text;
     expect(range.split("\n")[0]).toContain("npx agentcash onboard");
@@ -295,7 +310,7 @@ describe("MCP tools on the free quota", () => {
     expect(body.result.isError).toBe(true);
     expect(body.result.content[0].text).toContain("free tier is unavailable");
     expect(body.result.content[0].text).toContain(`${BASE}/deps/advisories?`);
-    expect(body.result.structuredContent).toBeUndefined();
+    expect(body.result.structuredContent).toMatchObject({ url: `${BASE}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20&src=mcp`, status: 402 });
   });
 
   it("a quota that does not answer within QUOTA_TIMEOUT_MS gives the paid hint", async () => {
@@ -348,13 +363,14 @@ describe("MCP tools on the free quota", () => {
     expect((await res.json()).result.isError).toBe(true);
   });
 
-  it("the free path never asks the facilitator and writes no payment funnel events", async () => {
+  it("the free path never verifies or settles and writes no payment funnel events", async () => {
     const { call, facilitator, funnel } = setup({ perIp: 1 });
     await call("cn_workday_check", { date: "2026-10-08" });
-    await call("cn_workday_check", { date: "2026-10-08" }); // over quota
+    expect(facilitator.calls).toBe(0); // a free call does not even sync /supported
+    await call("cn_workday_check", { date: "2026-10-08" }); // over quota: payment link, quoted in-process
     await call("package_advisories", { ecosystem: "npm", name: "lodash", version: "4.17.20" });
-    expect(facilitator.calls).toBe(0);
-    expect(funnel).toEqual([]);
+    expect(facilitator.paymentCalls).toBe(0);
+    expect(funnel).toEqual([]); // the in-process quote is not a funnel request
   });
 });
 
@@ -508,6 +524,129 @@ describe("paid funnel: src and ip_hash on the request event", () => {
   });
 });
 
+describe("payment link and /paid/mcp", () => {
+  const IP = "203.0.113.9";
+  const env = { event: { requestContext: { http: { sourceIp: IP } } } };
+  /** What the paid HTTP route itself answers at url: its decoded PAYMENT-REQUIRED header. */
+  const httpQuote = async (app: ReturnType<typeof setup>["app"], url: string) => {
+    const res = await app.request(url, {}, env);
+    expect(res.status).toBe(402);
+    return decodePaymentRequiredHeader(res.headers.get("payment-required")!);
+  };
+  const CASES = [
+    ["cn_workday_check", { date: "2026-10-08" }, `${BASE}/cn/workday?date=2026-10-08&src=mcp`, "3000"],
+    ["cn_workday_check", { from: "2026-01-05", to: "2026-01-16" }, `${BASE}/cn/business-days?from=2026-01-05&to=2026-01-16&src=mcp`, "5000"],
+    ["package_advisories", { ecosystem: "npm", name: "lodash", version: "4.17.20" }, `${BASE}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20&src=mcp`, "5000"],
+  ] as const;
+
+  it.each(CASES)("/paid/mcp %s %j: payment link {url, status: 402, challenge} equal field by field to the HTTP 402", async (name, args, url, amount) => {
+    const { app, call } = setup({ path: "/paid/mcp" });
+    const r = (await call(name, args)).result;
+    expect(r.isError).toBe(true);
+    expect(Object.keys(r.structuredContent).sort()).toEqual(["challenge", "status", "url"]);
+    expect(r.structuredContent.url).toBe(url);
+    expect(r.structuredContent.status).toBe(402);
+    const ch = r.structuredContent.challenge;
+    const http = (await httpQuote(app, url)) as unknown as Record<string, unknown>;
+    expect(Object.keys(ch).sort()).toEqual(Object.keys(http).sort());
+    for (const k of Object.keys(http)) expect(ch[k], k).toEqual(http[k]);
+    // what paidmcp's checker requires of a challenge, and our own price, payTo and network
+    expect(ch.x402Version).toBe(2);
+    expect(ch.resource.url).toBe(url);
+    expect(ch.accepts).toHaveLength(1);
+    expect(ch.accepts[0]).toMatchObject({ scheme: "exact", network: NETWORK, payTo: PAY_TO, amount });
+    // the human hint stays first: onboard, add, then the URL
+    const lines = (r.content[0].text as string).split("\n");
+    expect(lines[0]).toContain("npx agentcash onboard");
+    expect(lines[1]).toContain(`npx agentcash add ${BASE}`);
+    expect(lines).toContain(`GET ${url}`);
+    expect(r.content[0].text).toContain("(/paid/mcp) has no free tier");
+  });
+
+  it("/paid/mcp never touches the free quota, and /mcp's quota is still all there afterwards", async () => {
+    const db = new FakeDynamo();
+    const paid = setup({ path: "/paid/mcp", db, perIp: 2 });
+    for (let i = 0; i < 5; i++) expect((await paid.call("cn_workday_check", { date: "2026-10-08" }, IP)).result.structuredContent.status).toBe(402);
+    expect(db.calls).toHaveLength(0);
+    expect(db.items.size).toBe(0);
+    const free = setup({ db, perIp: 2 });
+    expect((await free.call("cn_workday_check", { date: "2026-10-08" }, IP)).result.isError).toBeUndefined();
+    expect(db.items.get(globalKey("2026-11-24"))!.n).toBe(1);
+    expect(paid.facilitator.paymentCalls).toBe(0);
+    expect(paid.funnel).toEqual([]);
+  });
+
+  it("/paid/mcp still answers invalid arguments with the input error and no link", async () => {
+    const { call, db } = setup({ path: "/paid/mcp" });
+    const r = (await call("cn_workday_check", { date: "2026-02-30" })).result;
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain("invalid_date");
+    expect(r.structuredContent).toBeUndefined();
+    expect((await call("cn_workday_check", {})).result.content[0].text).toContain("invalid_arguments");
+    expect((await call("package_advisories", { ecosystem: "cobol", name: "x", version: "1" })).result.structuredContent).toBeUndefined();
+    expect(db.calls).toHaveLength(0);
+  });
+
+  it("/paid/mcp answers initialize and tools/list like /mcp, saying it has no free calls", async () => {
+    const { rpc } = setup({ path: "/paid/mcp" });
+    const init = (await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } })).body.result;
+    expect(init).toMatchObject({ protocolVersion: "2025-06-18", serverInfo: { name: "cn-calendar" } });
+    expect(init.instructions).toContain("no free calls");
+    expect(init.instructions).toContain(`${BASE}/mcp`);
+    const tools = (await rpc("tools/list")).body.result.tools as { name: string; description: string }[];
+    expect(tools.map((t) => t.name)).toEqual(["cn_workday_check", "package_advisories"]);
+    for (const t of tools) expect(t.description).not.toContain("Free for");
+  });
+
+  it("/paid/mcp refuses a foreign Origin with 403 and no CORS, answers GET with 405, and logs its path", async () => {
+    const { app } = setup();
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "cn_workday_check", arguments: { date: "2026-10-08" } } });
+    const evil = await app.request("/paid/mcp", { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body }, env);
+    expect(evil.status).toBe(403);
+    expect((await evil.json()).error.code).toBe(-32600);
+    expect(evil.headers.get("access-control-allow-origin")).toBeNull();
+    const preflight = await app.request("/paid/mcp", { method: "OPTIONS", headers: { origin: "https://evil.example", "access-control-request-method": "POST" } });
+    expect(preflight.status).toBe(403);
+    expect((await app.request("/paid/mcp")).status).toBe(405);
+    const big = await app.request("/paid/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: "x".repeat(17 * 1024) }, env);
+    expect(big.status).toBe(413);
+    const lines = (console.log as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .map((c) => JSON.parse(String(c[0])) as Record<string, unknown>)
+      .filter((l) => l.type === "mcp");
+    expect(lines.map((l) => [l.path, l.status])).toEqual([
+      ["/paid/mcp", 403],
+      ["/paid/mcp", 403],
+      ["/paid/mcp", 405],
+      ["/paid/mcp", 413],
+    ]);
+  });
+
+  it("logs payment_link and outcome paid_only on /paid/mcp", async () => {
+    const { call } = setup({ path: "/paid/mcp" });
+    await call("cn_workday_check", { date: "2026-10-08" });
+    const line = (console.log as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .map((c) => JSON.parse(String(c[0])) as Record<string, unknown>)
+      .filter((l) => l.type === "mcp")
+      .at(-1);
+    expect(line).toMatchObject({ path: "/paid/mcp", tool: "cn_workday_check", outcome: "paid_only", payment_link: true });
+  });
+
+  it("without a 402 quote (facilitator down) the tool error keeps the text hint and carries no link", async () => {
+    const down: FacilitatorClient = {
+      getSupported: async () => Promise.reject(new Error("facilitator down")),
+      verify: async () => Promise.reject(new Error("no")),
+      settle: async () => Promise.reject(new Error("no")),
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { call } = setup({ path: "/paid/mcp", facilitator: down });
+    const r = (await call("cn_workday_check", { date: "2026-10-08" })).result;
+    warn.mockRestore();
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toBeUndefined();
+    expect(r.content[0].text).toContain(`GET ${BASE}/cn/workday?date=2026-10-08&src=mcp`);
+  });
+});
+
 describe("MCP discovery", () => {
   it("serves /.well-known/mcp.json pointing at /mcp", async () => {
     const { app } = setup();
@@ -519,6 +658,15 @@ describe("MCP discovery", () => {
       free_tier: { calls_per_ip_per_day: 20, global_calls_per_day: 2000, privacy: PRIVACY_NOTE },
       payment: { network: NETWORK, prices: { cn_workday_check_date: "$0.003", package_advisories: "$0.005" } },
     });
+    expect(m.paid_mcp).toMatchObject({ type: "streamable-http", url: `${BASE}/paid/mcp` });
+    expect(m.paid_mcp.purpose).toContain("payment link");
+  });
+
+  it.each(["/", "/llms.txt", "/SKILL.md"])("%s names /paid/mcp and what it is for", async (path) => {
+    const { app } = setup();
+    const text = await (await app.request(path)).text();
+    expect(text).toContain(`${BASE}/paid/mcp`);
+    expect(text).toContain("{url, status: 402, challenge}");
   });
 
   it.each(["/", "/llms.txt", "/SKILL.md", "/.well-known/mcp.json"])("%s shows the claude mcp add command and the privacy note", async (path) => {
