@@ -407,4 +407,44 @@ describe("package advisories endpoints", () => {
       expect(text).toContain("CC-BY 4.0");
     }
   });
+
+  it("batch hitting the upstream deadline returns 502 and is not settled", async () => {
+    let now = Date.now();
+    const slow = (async () => {
+      now += 6_000;
+      return new Response(JSON.stringify({ vulns: [], next_page_token: undefined }));
+    }) as unknown as typeof fetch;
+    const { app, facilitator } = setup({ verify: true, settle: true }, new OsvClient(slow, () => now));
+    const res = await paidRequest(app, "/deps/advisories/batch", { method: "POST", body: batchBody(50).replace(/4\.17\.2[01]/g, () => `1.0.${Math.random()}`) });
+    expect(res.status).toBe(502);
+    expect((await res.json()).message).toMatch(/deadline/);
+    expect(facilitator.settleCalls).toBe(0);
+  });
+});
+
+describe("CORS", () => {
+  it("exposes the x402 headers on a 402 and answers preflight without payment", async () => {
+    const { app, events } = setup({ verify: true, settle: true });
+    const res = await app.request("/cn/workday?date=2026-02-14", { headers: { Origin: "https://agent.example" } });
+    expect(res.status).toBe(402);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    const exposed = res.headers.get("access-control-expose-headers")!.toLowerCase();
+    expect(exposed).toContain("payment-required");
+    expect(exposed).toContain("payment-response");
+    const pre = await app.request("/deps/advisories/batch", {
+      method: "OPTIONS",
+      headers: { Origin: "https://agent.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,payment-signature" },
+    });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get("access-control-allow-headers")!.toLowerCase()).toContain("payment-signature");
+    expect(pre.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(events().filter((e) => e.route === "/deps/advisories/batch")).toHaveLength(0);
+  });
+
+  it("keeps CORS headers on a paid 200", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const res = await paidRequest(app, "/cn/workday?date=2026-02-14");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-expose-headers")!.toLowerCase()).toContain("payment-response");
+  });
 });

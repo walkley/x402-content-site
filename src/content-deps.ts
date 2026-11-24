@@ -1,19 +1,27 @@
 // Descriptions and schemas for the package-advisory endpoints.
-import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
-import example from "./deps-example.json";
+import { ECOSYSTEMS, MAX_BATCH, OSV_SOURCE_NOTE } from "./advisories.js";
+import recorded from "./deps-example.json";
+
+const example = { ...recorded, source: OSV_SOURCE_NOTE };
 
 export const DEPS_SERVICE_NAME = "Package Vulnerability Advisories";
 export const DEPS_TAGS = ["security", "dependencies", "cve", "npm", "pypi"];
 
 export const ADVISORIES_DESCRIPTION =
   "Known security advisories (CVE, GHSA, PYSEC, GO, RUSTSEC) affecting one exact package version in npm, PyPI, Go, crates.io or Maven. " +
-  "Returns vulnerable true/false, CVSS, affected ranges, fixed versions and links. Data from OSV.dev, fetched live (cached up to 1 hour).";
+  "Returns vulnerable true/false, CVSS, affected ranges, fixed versions and links. Package names are case-sensitive (npm: use the published lowercase name). Data from OSV.dev, fetched live (cached up to 1 hour).";
 export const BATCH_DESCRIPTION =
   `Same as GET /deps/advisories for up to ${MAX_BATCH} package versions in one call. Results are in request order.`;
 
 const PACKAGE_PROPS = {
   ecosystem: { type: "string", enum: [...ECOSYSTEMS], description: "Package ecosystem (case-insensitive on input)" },
-  name: { type: "string", minLength: 1, maxLength: 214, description: "Package name; Maven uses groupId:artifactId, Go uses the module path" },
+  name: {
+    type: "string",
+    minLength: 1,
+    maxLength: 214,
+    description:
+      "Package name exactly as published; matching is case-sensitive for npm (lodash, not Lodash; legacy names such as JSONStream keep their case). Maven uses groupId:artifactId, Go the module path. PyPI names are normalised.",
+  },
   version: { type: "string", minLength: 1, maxLength: 128, description: "Exact version, e.g. 4.17.20" },
 };
 
@@ -109,4 +117,4 @@ export const BATCH_EXAMPLE_OUTPUT = { count: 1, vulnerable_count: 1, results: [e
 export const OSV_ATTRIBUTION =
   "Advisory data from OSV.dev (https://osv.dev, Apache-2.0), which aggregates source databases under their own licenses: " +
   "GitHub Advisory Database, PyPI Advisory Database, Go Vulnerability Database (CC-BY 4.0), Rust Advisory Database (CC0 1.0), " +
-  "OpenSSF Malicious Packages (Apache-2.0). Each advisory carries its source license; summaries of records from other sources are omitted.";
+  "OpenSSF Malicious Packages (Apache-2.0). Records are excerpted and modified (details omitted, ranges restructured). Each advisory carries its source license; summaries of records from other sources are omitted.";

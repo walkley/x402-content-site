@@ -50,5 +50,5 @@
   "truncated": false,
   "data_fetched_at": "2026-11-24T08:00:00.000Z",
   "queried_at": "2026-11-24T08:00:00.000Z",
-  "source": "OSV.dev (https://osv.dev); per-advisory license in `license`"
+  "source": "see OSV_SOURCE_NOTE in src/advisories.ts"
 }

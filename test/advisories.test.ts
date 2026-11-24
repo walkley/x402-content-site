@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { InputError } from "../src/calendar.js";
-import { CACHE_TTL_MS, MAX_BATCH, OsvClient, UpstreamError, parseBatch, parsePackageQuery } from "../src/advisories.js";
+import {
+  CACHE_TTL_MS,
+  MAX_BATCH,
+  MAX_BATCH_PAGES,
+  OSV_SOURCE_NOTE,
+  OsvClient,
+  UPSTREAM_DEADLINE_MS,
+  UpstreamError,
+  parseBatch,
+  parsePackageQuery,
+} from "../src/advisories.js";
 
 import { fakeOsvFetch } from "./helpers/osv.js";
 
@@ -149,5 +159,74 @@ describe("OsvClient with recorded fixtures", () => {
       new Response(JSON.stringify({ vulns: [{ id: "UBUNTU-CVE-2024-1", summary: "text", affected: [] }] }))) as unknown as typeof fetch;
     const r = await new OsvClient(fn).query({ ecosystem: "npm", name: "x", version: "1" });
     expect(r.advisories[0]).toMatchObject({ summary: null, license: "see source record" });
+  });
+
+  it("marks the data as excerpted and modified (CC-BY 4.0)", async () => {
+    const r = await new OsvClient(fakeOsvFetch().fn).query({ ecosystem: "npm", name: "lodash", version: "4.17.20" });
+    expect(r.source).toBe(OSV_SOURCE_NOTE);
+    expect(r.source).toMatch(/Excerpted and modified/);
+  });
+});
+
+describe("upstream deadline and page budget", () => {
+  // Every OSV response carries another page so pagination never ends on its own.
+  const endless = (onCall?: () => void) => {
+    let n = 0;
+    return (async (_u: string, init: RequestInit) => {
+      onCall?.();
+      const body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ vulns: [{ id: `GHSA-${body.package.name}-${n++}`, affected: [] }], next_page_token: "more" }));
+    }) as unknown as typeof fetch;
+  };
+  const pkgs = (n: number) => Array.from({ length: n }, (_, i) => ({ ecosystem: "npm" as const, name: `p${i}`, version: "1" }));
+
+  it("a single query stops after 5 pages and reports truncated", async () => {
+    const c = new OsvClient(endless());
+    const r = await c.query({ ecosystem: "npm", name: "x", version: "1" });
+    expect(c.upstreamCalls).toBe(5);
+    expect(r).toMatchObject({ truncated: true, advisory_count: 5 });
+  });
+
+  it(`a batch makes at most ${MAX_BATCH_PAGES} OSV calls in total`, async () => {
+    const c = new OsvClient(endless());
+    const results = await c.queryMany(pkgs(MAX_BATCH));
+    expect(c.upstreamCalls).toBe(MAX_BATCH_PAGES);
+    expect(results.every((r) => r.truncated)).toBe(true);
+    const small = new OsvClient(endless());
+    await small.queryMany(pkgs(3));
+    expect(small.upstreamCalls).toBe(15); // 3 x 5 pages, well under the budget
+  });
+
+  it("results cut by the batch budget are not cached", async () => {
+    const c = new OsvClient(endless());
+    await c.queryMany(pkgs(MAX_BATCH));
+    const before = c.upstreamCalls;
+    const single = await c.query(pkgs(MAX_BATCH)[MAX_BATCH - 1]);
+    expect(c.upstreamCalls).toBeGreaterThan(before);
+    expect(single.advisory_count).toBe(5);
+  });
+
+  it(`gives up after ${UPSTREAM_DEADLINE_MS / 1000}s of upstream time with UpstreamError`, async () => {
+    let now = 0;
+    const c = new OsvClient(endless(() => (now += 4_000)), () => now); // each call "takes" 4 s
+    await expect(c.query({ ecosystem: "npm", name: "x", version: "1" })).rejects.toThrow(/deadline of 15s exceeded/);
+    expect(c.upstreamCalls).toBe(4); // calls start at t=0,4,8,12; the 5th would start at 16 s
+    now = 0;
+    const b = new OsvClient(endless(() => (now += 4_000)), () => now);
+    await expect(b.queryMany(pkgs(20))).rejects.toBeInstanceOf(UpstreamError);
+  });
+
+  it("caps each call's timeout at the time left before the deadline", async () => {
+    let now = 0;
+    const timeouts: number[] = [];
+    const orig = AbortSignal.timeout;
+    AbortSignal.timeout = (ms: number) => (timeouts.push(ms), orig.call(AbortSignal, ms));
+    try {
+      const c = new OsvClient(endless(() => (now += 6_000)), () => now);
+      await expect(c.query({ ecosystem: "npm", name: "x", version: "1" })).rejects.toBeInstanceOf(UpstreamError);
+    } finally {
+      AbortSignal.timeout = orig;
+    }
+    expect(timeouts).toEqual([5_000, 5_000, 3_000]);
   });
 });

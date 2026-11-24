@@ -26,17 +26,19 @@ Without a payment header a paid route returns `402` with a `PAYMENT-REQUIRED` he
 
 ### How the advisory endpoints use OSV.dev
 
-- OSV.dev is called only after the payment is verified: `POST https://api.osv.dev/v1/query` with a 5 s timeout and an identifying `User-Agent`, following `next_page_token` for up to 5 pages (`truncated: true` beyond that). A batch runs single queries 10 at a time.
+- OSV.dev is called only after the payment is verified: `POST https://api.osv.dev/v1/query` with an identifying `User-Agent`, following `next_page_token` for up to 5 pages per package (`truncated: true` beyond that). Each call times out after 5 s, and all calls for one paid request share a **15 s deadline**, which leaves time to settle before API Gateway's 29 s integration limit. A batch runs single queries 10 at a time and makes at most **60 OSV calls in total** (one first page per package plus up to 10 follow-up pages), so one payment cannot trigger more upstream work than that. A result cut short by that budget is marked `truncated` and not cached.
+- Package names are matched as published. npm names are case-sensitive (`lodash`, not `Lodash`), so a wrongly-cased name returns `vulnerable: false`. The API does not lowercase them because some legacy npm packages keep capitals (for example `JSONStream`). PyPI names are normalised by OSV.dev.
 - Results are cached in memory per Lambda container for 1 hour (at most 5,000 package versions; concurrent misses for the same version share one upstream call). `data_fetched_at` says when the data came from OSV.dev.
 - **Upstream failure is not charged.** If OSV.dev times out, is unreachable, or returns an error or invalid JSON, the handler answers `502 upstream_unavailable`. The x402 middleware only settles after a response below 400, so the verified payment is never settled and no USDC moves. In a batch, one failed package fails the whole call, again unsettled. The funnel log records this as stage `handler_error`.
 - Only the queried package's `affected` entries are returned (a GHSA record for lodash also lists lodash-es and others).
+- All routes send CORS headers (`Access-Control-Allow-Origin: *`, `Access-Control-Expose-Headers: PAYMENT-REQUIRED, PAYMENT-RESPONSE`, preflight allows `PAYMENT-SIGNATURE`/`X-PAYMENT`), so browser-based agents can read the payment headers.
 
 ### Data sources and licenses
 
 | Data | Source | License |
 |---|---|---|
 | China holidays | State Council notices on www.gov.cn, see `data/cn-holidays/SOURCES.md` | Official administrative documents, excluded from copyright by Art. 5 of the PRC Copyright Law |
-| Package advisories | [OSV.dev](https://osv.dev) API and aggregation | Apache-2.0. The maintainers confirmed there are no restrictions on commercial use ([google/osv.dev#1884](https://github.com/google/osv.dev/issues/1884)). |
+| Package advisories | [OSV.dev](https://osv.dev) API and aggregation | The OSV.dev software is Apache-2.0, and its maintainers say it can be used in commercial products without restriction ([google/osv.dev#1884](https://github.com/google/osv.dev/issues/1884)). That answer covers the software, not the data. The data keeps each source's license, listed below. All of them (CC-BY 4.0, CC0 1.0, Apache-2.0) allow commercial redistribution. |
 | ↳ `GHSA-*` | GitHub Advisory Database | CC-BY 4.0 |
 | ↳ `PYSEC-*` | PyPI Advisory Database | CC-BY 4.0 |
 | ↳ `GO-*` | Go Vulnerability Database | CC-BY 4.0 |
@@ -44,7 +46,7 @@ Without a payment header a paid route returns `402` with a `PAYMENT-REQUIRED` he
 | ↳ `MAL-*` | OpenSSF Malicious Packages | Apache-2.0 |
 | ↳ `PSF-*` | Python Software Foundation Database | CC-BY 4.0 |
 
-Source licenses are listed on [OSV.dev data sources](https://google.github.io/osv.dev/data/). Every advisory in a response carries its `license`, `source_database` and osv.dev `url`, which is the attribution CC-BY 4.0 requires. A record whose ID prefix is not in the table is returned with ids, versions and links only; its `summary` is `null` and `license` is `see source record`. The OSV.dev sources with restrictive licenses (Chainguard CC-BY-NC-ND, Ubuntu CC-BY-SA) cover OS packages, not the five ecosystems this API accepts.
+Source licenses are listed on [OSV.dev data sources](https://google.github.io/osv.dev/data/). Every advisory in a response carries its `license`, `source_database` and osv.dev `url`, which is the attribution CC-BY 4.0 requires. Records are **excerpted and modified**: the `details` text is omitted, and affected ranges are restructured and filtered to the queried package. The response's `source` field says so, as CC-BY 4.0 requires an indication of changes. A record whose ID prefix is not in the table is returned with ids, versions and links only; its `summary` is `null` and `license` is `see source record`. The OSV.dev sources with restrictive licenses (Chainguard CC-BY-NC-ND, Ubuntu CC-BY-SA) cover OS packages, not the five ecosystems this API accepts.
 
 ## Configuration
 

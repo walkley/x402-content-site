@@ -11,8 +11,14 @@ export const OSV_TIMEOUT_MS = 5_000;
 export const CACHE_TTL_MS = 60 * 60 * 1000;
 export const CACHE_MAX_ENTRIES = 5_000;
 export const MAX_BATCH = 50;
-const MAX_PAGES = 5; // OSV paginates very large results; cap the follow-ups per query.
+/** Wall-clock budget for all OSV.dev calls of one paid request; leaves time to settle before the gateway's 29 s limit. */
+export const UPSTREAM_DEADLINE_MS = 15_000;
+const MAX_PAGES = 5; // OSV paginates very large results; cap the pages per package.
+/** Upper bound on OSV.dev page requests one paid batch can trigger (first pages included). */
+export const MAX_BATCH_PAGES = 60;
 const BATCH_CONCURRENCY = 10;
+export const OSV_SOURCE_NOTE =
+  "OSV.dev (https://osv.dev). Excerpted and modified: details text omitted, affected ranges restructured and filtered to the queried package. Per-advisory license in `license`.";
 const USER_AGENT = "x402-content-site/1.0 (+https://github.com/walkley/x402-content-site)";
 
 const LICENSES: [prefix: string, license: string, source: string][] = [
@@ -56,6 +62,12 @@ export interface AdvisoryResult extends PackageQuery {
 }
 
 export class UpstreamError extends Error {}
+
+/** Shared by every OSV.dev call made for one paid request. */
+interface Budget {
+  deadline: number; // epoch ms
+  extraPages: number; // follow-up pages (after each package's first page) still allowed
+}
 
 // ---- input validation -------------------------------------------------------------------
 
@@ -168,18 +180,26 @@ export class OsvClient {
     return `${q.ecosystem}\u0000${q.name}\u0000${q.version}`;
   }
 
-  private async post(body: unknown): Promise<{ vulns?: OsvVuln[]; next_page_token?: string }> {
+  private budget(extraPages: number): Budget {
+    return { deadline: this.now() + UPSTREAM_DEADLINE_MS, extraPages };
+  }
+
+  private async post(body: unknown, budget: Budget): Promise<{ vulns?: OsvVuln[]; next_page_token?: string }> {
+    const remaining = budget.deadline - this.now();
+    if (remaining <= 0) throw new UpstreamError(`OSV.dev deadline of ${UPSTREAM_DEADLINE_MS / 1000}s exceeded`);
     this.upstreamCalls++;
+    const timeout = Math.min(OSV_TIMEOUT_MS, remaining);
     let res: Response;
     try {
       res = await this.fetchImpl(`${OSV_API}/query`, {
         method: "POST",
         headers: { "content-type": "application/json", "user-agent": USER_AGENT },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeout),
       });
     } catch (e) {
-      throw new UpstreamError(`OSV.dev unreachable: ${(e as Error).name === "TimeoutError" ? "timeout after 5s" : (e as Error).message}`);
+      const timedOut = (e as Error).name === "TimeoutError";
+      throw new UpstreamError(`OSV.dev unreachable: ${timedOut ? `timeout after ${Math.round(timeout / 100) / 10}s` : (e as Error).message}`);
     }
     if (!res.ok) throw new UpstreamError(`OSV.dev returned HTTP ${res.status}`);
     try {
@@ -189,41 +209,50 @@ export class OsvClient {
     }
   }
 
-  private async fetchEntry(q: PackageQuery, now: number): Promise<CacheEntry> {
+  private async fetchEntry(q: PackageQuery, now: number, budget: Budget): Promise<CacheEntry> {
     const key = this.key(q);
     const vulns: OsvVuln[] = [];
     let token: string | undefined;
     let pages = 0;
-    do {
-      const page = await this.post({
-        package: { ecosystem: q.ecosystem, name: q.name },
-        version: q.version,
-        ...(token ? { page_token: token } : {}),
-      });
+    let cutByBudget = false;
+    for (;;) {
+      const page = await this.post(
+        { package: { ecosystem: q.ecosystem, name: q.name }, version: q.version, ...(token ? { page_token: token } : {}) },
+        budget,
+      );
       vulns.push(...(page.vulns ?? []));
       token = page.next_page_token;
-    } while (token && ++pages < MAX_PAGES);
+      if (!token || ++pages >= MAX_PAGES) break;
+      if (budget.extraPages <= 0) {
+        cutByBudget = true;
+        break;
+      }
+      budget.extraPages--;
+    }
     const entry: CacheEntry = {
       expires: now + CACHE_TTL_MS,
       fetchedAt: new Date(now).toISOString(),
       advisories: vulns.map((v) => toAdvisory(v, q)),
       truncated: !!token,
     };
-    // shortcut: oldest-first eviction at a fixed entry cap bounds memory per Lambda container.
-    if (this.cache.size >= CACHE_MAX_ENTRIES) this.cache.delete(this.cache.keys().next().value!);
-    this.cache.delete(key);
-    this.cache.set(key, entry);
+    // A result cut short by this batch's page budget is not cached, so a later single query gets the full list.
+    if (!cutByBudget) {
+      // shortcut: oldest-first eviction at a fixed entry cap bounds memory per Lambda container.
+      if (this.cache.size >= CACHE_MAX_ENTRIES) this.cache.delete(this.cache.keys().next().value!);
+      this.cache.delete(key);
+      this.cache.set(key, entry);
+    }
     return entry;
   }
 
-  async query(q: PackageQuery): Promise<AdvisoryResult> {
+  async query(q: PackageQuery, budget: Budget = this.budget(MAX_PAGES - 1)): Promise<AdvisoryResult> {
     const key = this.key(q);
     const now = this.now();
     let entry = this.cache.get(key);
     if (!entry || entry.expires <= now) {
       let p = this.pending.get(key);
       if (!p) {
-        p = this.fetchEntry(q, now).finally(() => this.pending.delete(key));
+        p = this.fetchEntry(q, now, budget).finally(() => this.pending.delete(key));
         this.pending.set(key, p);
       }
       entry = await p;
@@ -236,18 +265,22 @@ export class OsvClient {
       truncated: entry.truncated,
       data_fetched_at: entry.fetchedAt,
       queried_at: new Date(now).toISOString(),
-      source: "OSV.dev (https://osv.dev); per-advisory license in `license`",
+      source: OSV_SOURCE_NOTE,
     };
   }
 
-  /** Runs queries with bounded concurrency. Any upstream failure fails the whole batch (and so it is not charged). */
+  /**
+   * Runs queries with bounded concurrency under one deadline and a total page budget of MAX_BATCH_PAGES.
+   * Any upstream failure or the deadline fails the whole batch (and so it is not charged).
+   */
   async queryMany(qs: PackageQuery[]): Promise<AdvisoryResult[]> {
+    const budget = this.budget(Math.max(0, MAX_BATCH_PAGES - qs.length));
     const out: AdvisoryResult[] = new Array(qs.length);
     let next = 0;
     const worker = async () => {
       while (next < qs.length) {
         const i = next++;
-        out[i] = await this.query(qs[i]);
+        out[i] = await this.query(qs[i], budget);
       }
     };
     await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, qs.length) }, worker));

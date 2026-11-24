@@ -6,6 +6,7 @@ import { decodePaymentRequiredHeader, type FacilitatorConfig } from "@x402/core/
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
 import { InputError } from "./calendar.js";
 import { OsvClient, UpstreamError, parseBatch, parsePackageQuery } from "./advisories.js";
 import {
@@ -303,6 +304,18 @@ export function createApp(cfg: AppConfig) {
     console.error(JSON.stringify({ ts: new Date().toISOString(), type: "error", route: c.req.path, message: err.message }));
     return c.json({ error: "internal_error" }, 500);
   });
+
+  // Browser-based agents must be able to read the x402 headers and send the payment header cross-origin.
+  app.use(
+    "*",
+    cors({
+      origin: "*",
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "X-PAYMENT"],
+      exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
+      maxAge: 86400,
+    }),
+  );
 
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
