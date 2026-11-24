@@ -207,3 +207,5 @@ Do these on the day of the switch to `eip155:8453`; they cannot be checked on te
 ## Legal and tax
 
 The operator is responsible for tax reporting and regulatory compliance of the payments received. This repository and its maintainers give no tax or legal advice.
+
+Access logs (API Gateway, one line per request) are kept for 30 days and include the caller's source IP address.
