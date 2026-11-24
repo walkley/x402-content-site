@@ -6,3 +6,5 @@ dist/
 .env
 .env.*
 /tmp/
+cdk.out/
+coverage/

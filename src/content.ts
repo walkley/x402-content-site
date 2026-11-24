@@ -1,0 +1,193 @@
+// Static descriptions shared by the x402 route config, /openapi.json, /llms.txt and the preview page.
+import { MAX_RANGE_DAYS } from "./calendar.js";
+import { calendar } from "./data.js";
+
+export const SERVICE_NAME = "China Workday Calendar";
+export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
+export const REPO_URL = "https://github.com/walkley/x402-content-site";
+
+const DATE_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
+
+export const WORKDAY_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    date: { ...DATE_SCHEMA, description: `Calendar date in China (YYYY-MM-DD), ${calendar.firstDate}..${calendar.lastDate}` },
+  },
+  required: ["date"],
+  additionalProperties: false,
+};
+
+export const WORKDAY_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    date: DATE_SCHEMA,
+    weekday: { type: "integer", minimum: 1, maximum: 7, description: "ISO weekday, 1 = Monday, 7 = Sunday" },
+    is_workday: { type: "boolean", description: "true for an ordinary weekday or a makeup workday (调休补班)" },
+    is_public_holiday: { type: "boolean", description: "true inside an official holiday period (放假) from the State Council notice" },
+    is_makeup_workday: { type: "boolean", description: "true for a weekend day officially designated as a working day (调休上班)" },
+    holiday_name: { type: ["string", "null"], description: "Holiday name as written in the notice, e.g. 春节" },
+    kind: { type: "string", enum: ["workday", "weekend", "public_holiday", "makeup_workday"] },
+    source_url: { type: "string", description: "gov.cn notice the answer is based on" },
+    data_updated: { ...DATE_SCHEMA, description: "Publication date of the newest notice in the dataset" },
+  },
+  required: [
+    "date",
+    "weekday",
+    "is_workday",
+    "is_public_holiday",
+    "is_makeup_workday",
+    "holiday_name",
+    "kind",
+    "source_url",
+    "data_updated",
+  ],
+  additionalProperties: false,
+};
+
+export const BUSINESS_DAYS_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    from: { ...DATE_SCHEMA, description: "First date, inclusive (YYYY-MM-DD)" },
+    to: { ...DATE_SCHEMA, description: `Last date, inclusive (YYYY-MM-DD); at most ${MAX_RANGE_DAYS} days after counting both ends` },
+  },
+  required: ["from", "to"],
+  additionalProperties: false,
+};
+
+export const BUSINESS_DAYS_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    from: DATE_SCHEMA,
+    to: DATE_SCHEMA,
+    calendar_days: { type: "integer", minimum: 1, maximum: MAX_RANGE_DAYS },
+    workday_count: { type: "integer", minimum: 0 },
+    workdays: { type: "array", items: DATE_SCHEMA, description: "Every working day in the range, ascending" },
+    data_updated: DATE_SCHEMA,
+  },
+  required: ["from", "to", "calendar_days", "workday_count", "workdays", "data_updated"],
+  additionalProperties: false,
+};
+
+export const WORKDAY_EXAMPLE_INPUT = { date: "2026-02-14" };
+export const WORKDAY_EXAMPLE_OUTPUT = { ...calendar.lookup("2026-02-14"), data_updated: calendar.dataUpdated };
+export const BUSINESS_DAYS_EXAMPLE_INPUT = { from: "2026-09-28", to: "2026-10-11" };
+export const BUSINESS_DAYS_EXAMPLE_OUTPUT = {
+  ...calendar.businessDays("2026-09-28", "2026-10-11"),
+  data_updated: calendar.dataUpdated,
+};
+
+export const WORKDAY_DESCRIPTION =
+  "Is a given date a working day in mainland China? Applies the State Council (国务院) holiday notice: " +
+  "public holiday periods, weekend makeup workdays (调休补班) and ordinary weekends. Returns holiday name and source link.";
+export const BUSINESS_DAYS_DESCRIPTION =
+  "Count and list mainland China working days between two dates (inclusive, up to 366 days, may cross years), " +
+  "honouring official holidays and weekend makeup workdays (调休补班) from State Council notices.";
+
+export interface PriceInfo {
+  network: string;
+  workdayPrice: string;
+  businessDaysPrice: string;
+}
+
+export function openApi(baseUrl: string, p: PriceInfo) {
+  const paid = (price: string) => ({
+    description: `Payment required (x402 v2). Price ${price} USDC on ${p.network}. Read the PAYMENT-REQUIRED header, then retry with PAYMENT-SIGNATURE.`,
+  });
+  const err = { description: "Invalid input or date outside the covered range. Not charged." };
+  return {
+    openapi: "3.1.0",
+    info: {
+      title: SERVICE_NAME,
+      version: "1.0.0",
+      description: `Pay-per-call x402 API for mainland China workdays. Data ${calendar.firstDate}..${calendar.lastDate}, updated ${calendar.dataUpdated}.`,
+    },
+    servers: [{ url: baseUrl }],
+    paths: {
+      "/cn/workday": {
+        get: {
+          summary: WORKDAY_DESCRIPTION,
+          "x-x402-price": p.workdayPrice,
+          parameters: [{ name: "date", in: "query", required: true, schema: WORKDAY_INPUT_SCHEMA.properties.date }],
+          responses: {
+            "200": { description: "Day classification", content: { "application/json": { schema: WORKDAY_OUTPUT_SCHEMA, example: WORKDAY_EXAMPLE_OUTPUT } } },
+            "400": err,
+            "402": paid(p.workdayPrice),
+            "404": err,
+          },
+        },
+      },
+      "/cn/business-days": {
+        get: {
+          summary: BUSINESS_DAYS_DESCRIPTION,
+          "x-x402-price": p.businessDaysPrice,
+          parameters: [
+            { name: "from", in: "query", required: true, schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.from },
+            { name: "to", in: "query", required: true, schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.to },
+          ],
+          responses: {
+            "200": { description: "Workdays in range", content: { "application/json": { schema: BUSINESS_DAYS_OUTPUT_SCHEMA, example: BUSINESS_DAYS_EXAMPLE_OUTPUT } } },
+            "400": err,
+            "402": paid(p.businessDaysPrice),
+            "404": err,
+          },
+        },
+      },
+      "/health": { get: { summary: "Liveness check (free)", responses: { "200": { description: "ok" } } } },
+    },
+  };
+}
+
+export function llmsTxt(baseUrl: string, p: PriceInfo): string {
+  return `# ${SERVICE_NAME}
+
+> Pay-per-call x402 API answering whether a date is a working day in mainland China, including official holidays and weekend makeup workdays (调休补班) from State Council (国务院) notices. Payment: USDC via x402 v2, scheme "exact", network ${p.network}.
+
+Coverage: ${calendar.firstDate} to ${calendar.lastDate}. Data updated: ${calendar.dataUpdated}. Invalid input returns 400/404 before any payment is requested.
+
+## Paid endpoints
+
+- [GET ${baseUrl}/cn/workday?date=YYYY-MM-DD](${baseUrl}/cn/workday?date=2026-02-14): ${p.workdayPrice}. ${WORKDAY_DESCRIPTION}
+- [GET ${baseUrl}/cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD](${baseUrl}/cn/business-days?from=2026-09-28&to=2026-10-11): ${p.businessDaysPrice}. ${BUSINESS_DAYS_DESCRIPTION}
+
+## Free
+
+- [OpenAPI](${baseUrl}/openapi.json): full input/output JSON schema and examples
+- [Preview page](${baseUrl}/)
+- [Source code and data](${REPO_URL})
+
+## Example
+
+GET /cn/workday?date=2026-02-14 returns:
+${JSON.stringify(WORKDAY_EXAMPLE_OUTPUT)}
+`;
+}
+
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: number; source_url: string }[]): string {
+  const sourceList = sources
+    .map((s) => `<li>${s.year}: <a href="${esc(s.source_url)}">${esc(s.source_url)}</a></li>`)
+    .join("");
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${SERVICE_NAME} — x402 API</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#222}code,pre{background:#f4f4f4;border-radius:4px}pre{padding:.8rem;overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem;text-align:left}</style>
+</head><body>
+<h1>${SERVICE_NAME}</h1>
+<p>中国法定节假日与调休工作日查询。A pay-per-call API for AI agents: is a date a working day in mainland China, counting official holidays and weekend makeup workdays (调休补班) from State Council notices. Paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>.</p>
+<p>Coverage <b>${calendar.firstDate}</b> to <b>${calendar.lastDate}</b>. Data updated <b>${calendar.dataUpdated}</b>.</p>
+<table><tr><th>Endpoint</th><th>Price</th></tr>
+<tr><td><code>GET /cn/workday?date=YYYY-MM-DD</code></td><td>${esc(p.workdayPrice)}</td></tr>
+<tr><td><code>GET /cn/business-days?from=YYYY-MM-DD&amp;to=YYYY-MM-DD</code> (≤ ${MAX_RANGE_DAYS} days)</td><td>${esc(p.businessDaysPrice)}</td></tr></table>
+<h2>Example</h2>
+<p><code>GET ${esc(baseUrl)}/cn/workday?date=2026-02-14</code></p>
+<pre>${esc(JSON.stringify(WORKDAY_EXAMPLE_OUTPUT, null, 2))}</pre>
+<h2>Schema</h2>
+<p>Full input and output schemas: <a href="/openapi.json">/openapi.json</a>. Agent summary: <a href="/llms.txt">/llms.txt</a>.</p>
+<pre>${esc(JSON.stringify(WORKDAY_OUTPUT_SCHEMA, null, 2))}</pre>
+<h2>Sources</h2>
+<p>Each year follows the original State Council (国务院办公厅) annual holiday notice on gov.cn. Later ad-hoc notices are not applied (for example the 2020 Spring Festival extension, 国办发明电〔2020〕1号).</p>
+<ul>${sourceList}</ul>
+<p><a href="${REPO_URL}">Source code and data</a></p>
+</body></html>`;
+}
