@@ -13,4 +13,11 @@ describe("known-addresses.json", () => {
       seen.add(a.address.toLowerCase());
     }
   });
+
+  it("lists the payTo receiving wallet as self_pay", () => {
+    const payTo = doc.addresses.find(
+      (a: { address: string }) => a.address.toLowerCase() === "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+    );
+    expect(payTo?.role).toBe("self_pay");
+  });
 });

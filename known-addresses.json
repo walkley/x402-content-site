@@ -22,6 +22,13 @@
       "networks": ["eip155:8453"],
       "added": "2026-11-24",
       "note": "Base mainnet self-pay buyer (scripts/self-pay-mainnet.ts). Key in AWS Secrets Manager x402/buyer-wallet, ap-northeast-1."
+    },
+    {
+      "address": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+      "role": "self_pay",
+      "networks": ["eip155:8453"],
+      "added": "2026-11-24",
+      "note": "Base mainnet payTo (receiving wallet). A Transfer from payTo to payTo is a self-payment for directory indexing (r16). Key in AWS Secrets Manager x402/payto-wallet, ap-northeast-1."
     }
   ]
 }
