@@ -4,7 +4,7 @@ import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePaymentSignatureHeader } from "@x402/core/http";
 import { BATCH_PRICE, configFromEnv, createApp } from "../src/app.js";
 import { ADVISORIES_DESCRIPTION, BATCH_DESCRIPTION } from "../src/content-deps.js";
-import { perPackagePrice } from "../src/content.js";
+import { SKILL_DESCRIPTION, perPackagePrice } from "../src/content.js";
 import { FunnelLogger } from "../src/funnel.js";
 import { OsvClient } from "../src/advisories.js";
 import { fakeOsvFetch } from "./helpers/osv.js";
@@ -332,7 +332,7 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
     const { app } = setup({ verify: true, settle: true });
     const llms = await (await app.request("/llms.txt")).text();
     const h2 = llms.split("\n").filter((l) => l.startsWith("## "));
-    expect(h2).toEqual(["## China Workday Calendar", "## Package Vulnerability Advisories", "## Free"]);
+    expect(h2).toEqual(["## Use from Claude Code / Cursor / Codex", "## China Workday Calendar", "## Package Vulnerability Advisories", "## Free"]);
     expect(llms.match(/scheme "exact"/g)).toHaveLength(1);
     expect(llms).toContain("$0.0004 per package");
   });
@@ -383,6 +383,92 @@ describe("402 body repeats the PAYMENT-REQUIRED quote (body-only clients such as
     expect(res.headers.get("payment-required")).toBeNull();
     expect(await res.json()).not.toHaveProperty("accepts");
     expect(facilitator.verifyCalls + facilitator.settleCalls).toBe(0);
+  });
+});
+
+describe("AgentCash one-line install and /SKILL.md", () => {
+  const ORIGIN = "https://api.example";
+  const withBase = () =>
+    createApp({
+      network: NETWORK,
+      payTo: PAY_TO,
+      facilitatorKind: "x402org",
+      facilitatorUrl: "http://unused",
+      facilitator: new FakeFacilitator({ verify: true, settle: true }),
+      publicBaseUrl: ORIGIN,
+      funnel: new FunnelLogger(() => {}),
+    });
+  const commands = [`npx agentcash add ${ORIGIN}`, `npx agentcash try ${ORIGIN}`, "npx agentcash onboard"];
+
+  it("the preview page shows the install block before the price table, and llms.txt lists the same commands right after the summary", async () => {
+    const app = withBase();
+    const html = await (await app.request("/")).text();
+    expect(html).toContain("Use from Claude Code / Cursor / Codex");
+    expect(html).toContain(commands.join("\n"));
+    expect(html.indexOf("npx agentcash add")).toBeLessThan(html.indexOf("<table>"));
+    expect(html).toContain("<code>try</code> and <code>onboard</code> create an AgentCash wallet");
+    const llms = await (await app.request("/llms.txt")).text();
+    expect(llms).toContain(commands.join("\n"));
+    expect(llms.indexOf("npx agentcash onboard")).toBeLessThan(llms.indexOf("## China Workday Calendar"));
+    expect(llms).toContain("create an AgentCash wallet on first run");
+  });
+
+  it("every paid route's 402 body carries the install command, resource.description does not; payTo and amount are unchanged", async () => {
+    const app = withBase();
+    for (const [path, method, amount] of [
+      ["/cn/workday", "GET", "3000"],
+      ["/cn/business-days", "GET", "5000"],
+      ["/deps/advisories", "GET", "5000"],
+      ["/deps/advisories/batch", "POST", "20000"],
+    ] as const) {
+      const res = await app.request(path, { method, headers: UA });
+      expect(res.status).toBe(402);
+      const required = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
+      expect(required.resource.description).not.toContain("agentcash");
+      expect(required.accepts[0]).toMatchObject({ payTo: PAY_TO, amount, network: NETWORK });
+      expect((await res.json()).install).toBe(`npx agentcash add ${ORIGIN}`);
+    }
+    expect((await app.request("/cn/workday?date=2026-02-30", { headers: UA })).status).toBe(400);
+  });
+
+  it("serves /SKILL.md with AgentSkills frontmatter, every endpoint and price, gov.cn sources, and lists it in openapi", async () => {
+    const { app, events } = setup({ verify: true, settle: true });
+    const res = await app.request("/SKILL.md");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/markdown");
+    expect(res.headers.get("payment-required")).toBeNull();
+    const md = await res.text();
+    const fm = md.match(/^---\nname: ([a-z0-9-]+)\ndescription: (.+)\n---\n/);
+    expect(fm).not.toBeNull();
+    expect(fm![1].length).toBeLessThanOrEqual(64);
+    expect(JSON.parse(fm![2])).toBe(SKILL_DESCRIPTION);
+    expect(SKILL_DESCRIPTION.length).toBeLessThanOrEqual(1024);
+    for (const word of ["法定节假日", "调休", "补班", "工作日", "国务院", "npm", "PyPI"]) expect(SKILL_DESCRIPTION).toContain(word);
+    for (const line of [
+      "GET /cn/workday?date=YYYY-MM-DD ($0.003)",
+      "GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD ($0.005)",
+      "GET /deps/advisories?ecosystem=&name=&version= ($0.005)",
+      "POST /deps/advisories/batch ($0.02)",
+      "npx agentcash add http://localhost",
+      "Any x402 v2 client pays USDC on Base (network eip155:84532, scheme \"exact\"): agentcash, @x402/fetch (2.x), or Binance",
+      "www.gov.cn",
+    ]) expect(md).toContain(line);
+    expect(md).not.toContain("x402-fetch"); // the v1-only client cannot pay a v2 quote
+    const oa = await (await app.request("/openapi.json")).json();
+    expect(oa.paths["/SKILL.md"].get.security).toEqual([]);
+    expect(oa.paths["/SKILL.md"].get["x-payment-info"]).toBeUndefined();
+    expect(events()).toHaveLength(0);
+  });
+
+  it("the skill `npx agentcash add` builds from openapi info is valid AgentSkills frontmatter", async () => {
+    const { info } = await (await withBase().request("/openapi.json")).json();
+    // Same template as agentcash@0.17.1 dist/esm/add-skill-*.js (originSkillTitle / originSkillContent): values are unquoted.
+    const frontmatter = `---\nname: ${info.title.toLowerCase().replace(/[ .]/g, "-")}\ndescription: ${info.description}\n---`;
+    const [, name, description] = frontmatter.match(/^---\nname: (.*)\ndescription: (.*)\n---$/)!;
+    expect(name).toMatch(/^[a-z0-9-]{1,64}$/);
+    expect(description.length).toBeGreaterThan(0);
+    expect(description).not.toContain(": ");
+    expect(description).not.toContain(" #");
   });
 });
 

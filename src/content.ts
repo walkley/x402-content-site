@@ -20,7 +20,8 @@ import { ECOSYSTEMS, MAX_BATCH } from "./advisories.js";
 export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
 export const REPO_URL = "https://github.com/walkley/x402-content-site";
-export const SITE_NAME = "China Workday Calendar and Package Vulnerability Advisories (x402 pay-per-call APIs)";
+// Also the openapi info.title, which `npx agentcash add` lowercases into a skill name: keep it to letters, digits and spaces, at most 64 characters.
+export const SITE_NAME = "China Workday Calendar and Package Vulnerability Advisories";
 
 const DATE_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
 
@@ -143,8 +144,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       title: SITE_NAME,
       version: "1.2.0",
       description:
-        `Pay-per-call x402 APIs (USDC). ${SERVICE_NAME}: is a date a working day in mainland China, with official holidays and makeup workdays (调休). ` +
-        `${DEPS_SERVICE_NAME}: is this npm, PyPI, Go, crates.io or Maven package version safe to install; batch ${perPackagePrice(p.batchPrice)} per package.`,
+        // `npx agentcash add` copies this unquoted into YAML frontmatter, so no ": " or " #" (test/app.test.ts checks).
+        `Pay-per-call x402 APIs (USDC). ${SERVICE_NAME} — is a date a working day in mainland China, with official holidays and makeup workdays (调休). ` +
+        `${DEPS_SERVICE_NAME} — is this npm, PyPI, Go, crates.io or Maven package version safe to install; batch ${perPackagePrice(p.batchPrice)} per package.`,
       contact: { name: "Source and issues", url: REPO_URL },
       "x-guidance":
         "Call a paid route without payment to get a 402 with the price; pay with x402 v2 (exact, USDC) and retry with PAYMENT-SIGNATURE. " +
@@ -229,14 +231,33 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       },
       "/health": free("Liveness check (free)"),
       "/llms.txt": free("Agent-oriented summary of these APIs (free)"),
+      "/SKILL.md": free("Agent skill (AgentSkills SKILL.md): endpoints, prices, examples and how to pay (free)"),
     },
   };
 }
+
+/**
+ * AgentCash one-line setup, `add` first: it needs no wallet. `add` registers this origin in AgentCash's origin list and
+ * installs a pointer skill (built from openapi info.title/description) that runs `npx agentcash discover`; it does not
+ * read /SKILL.md. `try` and `onboard` create a wallet in ~/.agentcash on first run.
+ */
+export const agentcashCommands = (baseUrl: string) => [
+  `npx agentcash add ${baseUrl}`,
+  `npx agentcash try ${baseUrl}`,
+  "npx agentcash onboard",
+];
+export const INSTALL_HEADING = "Use from Claude Code / Cursor / Codex";
 
 export function llmsTxt(baseUrl: string, p: PriceInfo): string {
   return `# ${SITE_NAME}
 
 > Pay-per-call APIs for agents, paid with USDC via x402 v2 (scheme "exact", network ${p.network}). A request with no parameters returns 402 with the price and an example. Invalid input is rejected with a free 400/404 before any payment is requested; upstream or facilitator failures return 502 and are not charged.
+
+## ${INSTALL_HEADING}
+
+${agentcashCommands(baseUrl).join("\n")}
+
+\`add\` needs no wallet; \`try\` and \`onboard\` create an AgentCash wallet on first run. Agent skill: ${baseUrl}/SKILL.md
 
 ## ${SERVICE_NAME}
 
@@ -263,6 +284,7 @@ ${OSV_ATTRIBUTION}
 ## Free
 
 - [OpenAPI](${baseUrl}/openapi.json): full input/output JSON schema and examples
+- [SKILL.md](${baseUrl}/SKILL.md): agent skill with endpoints, prices and examples
 - [Preview page](${baseUrl}/)
 - [Source code and data](${REPO_URL})
 `;
@@ -281,7 +303,12 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <style>body{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#222}code,pre{background:#f4f4f4;border-radius:4px}pre{padding:.8rem;overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem;text-align:left}</style>
 </head><body>
 <h1>${SITE_NAME}</h1>
-<p>Pay-per-call data for AI agents, paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>. Full schemas: <a href="/openapi.json">/openapi.json</a>. Agent summary: <a href="/llms.txt">/llms.txt</a>.</p>
+<section id="install">
+<h2>${INSTALL_HEADING}</h2>
+<p>Run in your terminal to add these APIs to your agent with <a href="https://github.com/Merit-Systems/agentcash">AgentCash</a>; any other x402 client works too. <code>add</code> needs no wallet; <code>try</code> and <code>onboard</code> create an AgentCash wallet on first run.</p>
+<pre>${agentcashCommands(baseUrl).map(esc).join("\n")}</pre>
+</section>
+<p>Pay-per-call data for AI agents, paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>. Full schemas: <a href="/openapi.json">/openapi.json</a>. Agent summary: <a href="/llms.txt">/llms.txt</a>. Agent skill: <a href="/SKILL.md">/SKILL.md</a>.</p>
 <table><tr><th>Endpoint</th><th>Price</th></tr>
 <tr><td><code>GET /cn/workday?date=YYYY-MM-DD</code></td><td>${esc(p.workdayPrice)}</td></tr>
 <tr><td><code>GET /cn/business-days?from=YYYY-MM-DD&amp;to=YYYY-MM-DD</code> (≤ ${MAX_RANGE_DAYS} days)</td><td>${esc(p.businessDaysPrice)}</td></tr>
@@ -308,6 +335,80 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <p>${esc(OSV_ATTRIBUTION)} See <a href="https://google.github.io/osv.dev/data/">OSV.dev data sources</a>.</p>
 <p><a href="${REPO_URL}">Source code and data</a></p>
 </body></html>`;
+}
+
+/** Frontmatter description (AgentSkills: at most 1024 characters, says what the skill does and when to use it). */
+export const SKILL_DESCRIPTION =
+  "Pay-per-call x402 APIs (Base USDC). 1) China workday calendar: is a date a working day in mainland China, " +
+  "with official public holidays and weekend makeup workdays from State Council (国务院) notices, each answer linking the gov.cn source; " +
+  "count working days between two dates. 中国法定节假日、调休、补班、工作日判断、工作日天数计算，附国务院通知原文链接。 " +
+  "2) Package vulnerability advisories: is this npm, PyPI, Go, crates.io or Maven package version safe to install (CVE, GHSA, fixed versions, OSV.dev); " +
+  "npm/PyPI 等包安全公告、依赖漏洞检查。Use when a task needs China business days or holiday schedules, or before adding or upgrading a dependency.";
+
+export function skillMd(baseUrl: string, p: PriceInfo, sources: { year: number; source_url: string }[]): string {
+  const sourceList = sources.map((s) => `- ${s.year}: ${s.source_url}`).join("\n");
+  const batchBody = JSON.stringify(BATCH_EXAMPLE_INPUT);
+  return `---
+name: cn-workday-package-advisories
+description: ${JSON.stringify(SKILL_DESCRIPTION)}
+---
+
+# ${SITE_NAME}
+
+Base URL: ${baseUrl}
+
+## Setup
+
+${agentcashCommands(baseUrl).map((c) => `    ${c}`).join("\n")}
+
+\`add\` registers this origin with AgentCash and installs a small skill that runs \`npx agentcash discover\`; it needs no wallet. \`try\` and \`onboard\` create an AgentCash wallet on first run. You do not need AgentCash: any x402 v2 client works (see Payment).
+
+## Endpoints
+
+### GET /cn/workday?date=YYYY-MM-DD (${p.workdayPrice})
+
+${WORKDAY_DESCRIPTION} Covers ${calendar.firstDate} to ${calendar.lastDate}.
+
+Example: \`GET ${baseUrl}/cn/workday?${new URLSearchParams(WORKDAY_EXAMPLE_INPUT)}\` returns
+
+    ${JSON.stringify(WORKDAY_EXAMPLE_OUTPUT)}
+
+### GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD (${p.businessDaysPrice})
+
+${BUSINESS_DAYS_DESCRIPTION}
+
+Example: \`GET ${baseUrl}/cn/business-days?${new URLSearchParams(BUSINESS_DAYS_EXAMPLE_INPUT)}\` returns \`workday_count\` and the list \`workdays\`.
+
+### GET /deps/advisories?ecosystem=&name=&version= (${p.advisoriesPrice})
+
+${ADVISORIES_DESCRIPTION} Ecosystems: ${ECOSYSTEMS.join(", ")}.
+
+Example: \`GET ${baseUrl}/deps/advisories?${new URLSearchParams(ADVISORIES_EXAMPLE_INPUT)}\` returns \`vulnerable\` and \`advisories\`.
+
+### POST /deps/advisories/batch (${p.batchPrice})
+
+${BATCH_DESCRIPTION}
+
+Example: \`POST ${baseUrl}/deps/advisories/batch\` with JSON body \`${batchBody}\` (up to ${MAX_BATCH} packages).
+
+Full input and output schemas: ${baseUrl}/openapi.json
+
+## Payment
+
+Any x402 v2 client pays USDC on Base (network ${p.network}, scheme "exact"): agentcash, @x402/fetch (2.x), or Binance \`baw x402-payment\`.
+Call the endpoint without payment to get a 402 with the price in the PAYMENT-REQUIRED header and the JSON body, sign one of its accepts, and retry with a PAYMENT-SIGNATURE header.
+Invalid input gets a free 400/404 before any payment is asked for. A 502 (upstream or facilitator failure) is not charged.
+
+## Sources
+
+China calendar data follows the State Council General Office (国务院办公厅) holiday notices on gov.cn, data updated ${calendar.dataUpdated}:
+
+${sourceList}
+
+${OSV_ATTRIBUTION}
+
+Source code and data: ${REPO_URL}
+`;
 }
 
 /** 32x32 icon (ICO wrapping a PNG): white frame and dot on blue. Served at /favicon.ico and used as the x402 iconUrl. */

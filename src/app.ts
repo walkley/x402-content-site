@@ -52,6 +52,7 @@ import {
   llmsTxt,
   openApi,
   previewHtml,
+  skillMd,
   type PriceInfo,
 } from "./content.js";
 
@@ -284,6 +285,7 @@ export function createApp(cfg: AppConfig) {
             "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
           docs: `${base}/openapi.json`,
           llms_txt: `${base}/llms.txt`,
+          install: `npx agentcash add ${base}`,
           example: { request: { method: request.method, url: `${base}${request.path}`, ...(request.body ? { body: request.body } : {}) }, response },
         },
       };
@@ -480,6 +482,9 @@ export function createApp(cfg: AppConfig) {
 
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
+  app.get("/SKILL.md", (c) =>
+    c.body(skillMd(baseUrl(c), prices, calendar.sources), 200, { "Content-Type": "text/markdown; charset=utf-8" }),
+  );
   app.get("/openapi.json", (c) => c.json(openApi(baseUrl(c), prices)));
   app.get("/.well-known/openapi.json", (c) => c.json(openApi(baseUrl(c), prices)));
   app.get("/favicon.ico", (c) =>
