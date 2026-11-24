@@ -60,6 +60,16 @@ export function formatDay(day: number): string {
   return new Date(day * DAY_MS).toISOString().slice(0, 10);
 }
 
+/** Today's date (YYYY-MM-DD) in mainland China. Asia/Shanghai is a fixed UTC+8 with no daylight saving time. */
+export const chinaToday = (now = Date.now()) => new Date(now + 8 * 3_600_000).toISOString().slice(0, 10);
+
+/** First and last day (YYYY-MM-DD) of the current month in mainland China. */
+export function chinaThisMonth(now = Date.now()): { from: string; to: string } {
+  const today = chinaToday(now);
+  const [y, m] = today.split("-").map(Number);
+  return { from: `${today.slice(0, 7)}-01`, to: formatDay(Date.UTC(y, m, 0) / DAY_MS) }; // day 0 of the next month
+}
+
 function isoWeekday(day: number): number {
   const w = new Date(day * DAY_MS).getUTCDay(); // 0 = Sunday
   return w === 0 ? 7 : w;

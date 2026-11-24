@@ -45,7 +45,6 @@ export const WORKDAY_INPUT_SCHEMA = {
   properties: {
     date: { ...DATE_SCHEMA, description: `Calendar date in China (YYYY-MM-DD), ${calendar.firstDate}..${calendar.lastDate}` },
   },
-  required: ["date"],
   additionalProperties: false,
 };
 
@@ -82,7 +81,6 @@ export const BUSINESS_DAYS_INPUT_SCHEMA = {
     from: { ...DATE_SCHEMA, description: "First date, inclusive (YYYY-MM-DD)" },
     to: { ...DATE_SCHEMA, description: `Last date, inclusive (YYYY-MM-DD); at most ${MAX_RANGE_DAYS} days after counting both ends` },
   },
-  required: ["from", "to"],
   additionalProperties: false,
 };
 
@@ -107,6 +105,11 @@ export const BUSINESS_DAYS_EXAMPLE_OUTPUT = {
   ...calendar.businessDays("2026-09-28", "2026-10-11"),
   data_updated: calendar.dataUpdated,
 };
+
+// Shown in openapi.json, llms.txt and SKILL.md only, so the 402 quote (route description, bazaar schema) is unchanged.
+export const WORKDAY_DEFAULT_NOTE = "date is optional: with no date (and no from/to) it checks today in Asia/Shanghai.";
+export const BUSINESS_DAYS_DEFAULT_NOTE =
+  "from and to are optional together: with neither, the range is the current month in Asia/Shanghai (1st to last day). Give both or neither.";
 
 export const WORKDAY_DESCRIPTION =
   "Is a given date a working day in mainland China? Applies the State Council (国务院) holiday notice: " +
@@ -193,7 +196,15 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           tags: [SERVICE_NAME],
           "x-payment-info": paymentInfo(p.workdayPrice),
           "x-x402-price": p.workdayPrice,
-          parameters: [{ name: "date", in: "query", required: true, schema: WORKDAY_INPUT_SCHEMA.properties.date }],
+          parameters: [
+            {
+              name: "date",
+              in: "query",
+              required: false,
+              description: "Default: today in Asia/Shanghai when date is omitted. Other query keys (except src) are a free 400 unknown_param.",
+              schema: WORKDAY_INPUT_SCHEMA.properties.date,
+            },
+          ],
           responses: {
             "200": ok("Day classification", WORKDAY_OUTPUT_SCHEMA, WORKDAY_EXAMPLE_OUTPUT),
             "400": err,
@@ -212,8 +223,20 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           "x-payment-info": paymentInfo(p.businessDaysPrice),
           "x-x402-price": p.businessDaysPrice,
           parameters: [
-            { name: "from", in: "query", required: true, schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.from },
-            { name: "to", in: "query", required: true, schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.to },
+            {
+              name: "from",
+              in: "query",
+              required: false,
+              description: "Default: the 1st of the current month in Asia/Shanghai when from and to are both omitted. Give both or neither (400).",
+              schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.from,
+            },
+            {
+              name: "to",
+              in: "query",
+              required: false,
+              description: "Default: the last day of the current month in Asia/Shanghai when from and to are both omitted. Give both or neither (400).",
+              schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.to,
+            },
           ],
           responses: {
             "200": ok("Workdays in range", BUSINESS_DAYS_OUTPUT_SCHEMA, BUSINESS_DAYS_EXAMPLE_OUTPUT),
@@ -360,8 +383,8 @@ ${mcpBlurb(baseUrl, p)} Manifest: ${baseUrl}/.well-known/mcp.json
 
 Whether a date is a working day in mainland China, including official holidays and weekend makeup workdays (调休补班) from State Council (国务院) notices. Coverage ${calendar.firstDate} to ${calendar.lastDate}, data updated ${calendar.dataUpdated}.
 
-- [GET ${baseUrl}/cn/workday?date=YYYY-MM-DD](${baseUrl}/cn/workday?date=2026-02-14): ${p.workdayPrice}. ${WORKDAY_DESCRIPTION}
-- [GET ${baseUrl}/cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD](${baseUrl}/cn/business-days?from=2026-09-28&to=2026-10-11): ${p.businessDaysPrice}. ${BUSINESS_DAYS_DESCRIPTION}
+- [GET ${baseUrl}/cn/workday?date=YYYY-MM-DD](${baseUrl}/cn/workday?date=2026-02-14): ${p.workdayPrice}. ${WORKDAY_DESCRIPTION} ${WORKDAY_DEFAULT_NOTE}
+- [GET ${baseUrl}/cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD](${baseUrl}/cn/business-days?from=2026-09-28&to=2026-10-11): ${p.businessDaysPrice}. ${BUSINESS_DAYS_DESCRIPTION} ${BUSINESS_DAYS_DEFAULT_NOTE}
 
 Example: GET /cn/workday?date=2026-02-14 returns
 ${JSON.stringify(WORKDAY_EXAMPLE_OUTPUT)}
@@ -499,7 +522,7 @@ ${mcpBlurb(baseUrl, p)}
 
 ### GET /cn/workday?date=YYYY-MM-DD (${p.workdayPrice})
 
-${WORKDAY_DESCRIPTION} Covers ${calendar.firstDate} to ${calendar.lastDate}.
+${WORKDAY_DESCRIPTION} Covers ${calendar.firstDate} to ${calendar.lastDate}. ${WORKDAY_DEFAULT_NOTE}
 
 Example: \`GET ${baseUrl}/cn/workday?${new URLSearchParams(WORKDAY_EXAMPLE_INPUT)}\` returns
 
@@ -507,7 +530,7 @@ Example: \`GET ${baseUrl}/cn/workday?${new URLSearchParams(WORKDAY_EXAMPLE_INPUT
 
 ### GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD (${p.businessDaysPrice})
 
-${BUSINESS_DAYS_DESCRIPTION}
+${BUSINESS_DAYS_DESCRIPTION} ${BUSINESS_DAYS_DEFAULT_NOTE}
 
 Example: \`GET ${baseUrl}/cn/business-days?${new URLSearchParams(BUSINESS_DAYS_EXAMPLE_INPUT)}\` returns \`workday_count\` and the list \`workdays\`.
 

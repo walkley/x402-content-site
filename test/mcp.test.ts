@@ -576,8 +576,10 @@ describe("paid funnel: src and ip_hash on the request event", () => {
     expect(tagged).toEqual(plain);
     expect(plain.accepts).toHaveLength(1);
     expect(plain.accepts[0]).toMatchObject({ amount, payTo: PAY_TO, network: NETWORK, scheme: "exact" });
-    // invalid input stays a free 400 with src=mcp
-    const bad = await app.request(`${path.split("?")[0]}?src=mcp`, {}, env);
+    // invalid input stays a free 400 with src=mcp (the /cn routes default when their parameters are all absent)
+    const route = path.split("?")[0];
+    const badQuery = route === "/cn/workday" ? "date=2026-02-30&" : route === "/cn/business-days" ? "from=2026-01-05&" : "";
+    const bad = await app.request(`${route}?${badQuery}src=mcp`, {}, env);
     expect(bad.status).toBe(400);
     expect(bad.headers.get("payment-required")).toBeNull();
   });
