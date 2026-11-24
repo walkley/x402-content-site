@@ -26,12 +26,17 @@ export interface FunnelEvent {
   network?: string;
 }
 
+const FIELDS = ["stage", "route", "request_id", "user_agent", "status", "reason", "payer", "tx", "network"] as const satisfies readonly (keyof FunnelEvent)[];
+
 export type FunnelSink = (line: string) => void;
 
 export class FunnelLogger {
   constructor(private readonly sink: FunnelSink = (line) => console.log(line)) {}
 
   log(event: FunnelEvent): void {
-    this.sink(JSON.stringify({ ts: new Date().toISOString(), type: "x402_funnel", ...event }));
+    // Whitelist the fields so request state or payment data spread into `event` never reaches the log.
+    const out: Record<string, unknown> = { ts: new Date().toISOString(), type: "x402_funnel" };
+    for (const k of FIELDS) if (event[k] !== undefined) out[k] = event[k];
+    this.sink(JSON.stringify(out));
   }
 }

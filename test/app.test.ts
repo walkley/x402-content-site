@@ -131,6 +131,7 @@ describe("paid flow", () => {
     expect(stages).toEqual(["request", "402_returned", "request", "payment_header_received", "verify_ok", "settle_ok", "content_returned"]);
     const settleOk = events().find((e) => e.stage === "settle_ok");
     expect(settleOk).toMatchObject({ tx: "0x" + "12".repeat(32), payer: PAYER, route: "/cn/workday" });
+    for (const e of events()) expect(Object.keys(e)).not.toContain("settled");
     // The signature (and the encoded header containing it) must never be logged.
     expect(lines.join("\n")).not.toContain("abababab");
   });
