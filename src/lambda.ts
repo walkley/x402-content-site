@@ -11,7 +11,8 @@ type StageEnv = { requestContext?: { stage?: string } };
  * built from `requestContext.path`, so `c.req.url`, which x402 copies into `resource`, is a URL a client can call.
  * Routing strips the stage again, so routes and the paid-route table still see `/cn/workday`.
  */
-export function restApiHandler(app: Hono) {
+// Hono<any>: accepts apps with typed Variables; the wrapper only routes.
+export function restApiHandler(app: Hono<any>) {
   const routed = new Hono({
     getPath: (req, opts) => {
       const raw = new URL(req.url).pathname;

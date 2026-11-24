@@ -26,7 +26,7 @@ describe("ApiStack", () => {
       StageName: "prod",
       MethodSettings: [Match.objectLike({ HttpMethod: "*", ResourcePath: "/*", ThrottlingRateLimit: 10, ThrottlingBurstLimit: 20 })],
     });
-    template.hasResourceProperties("AWS::Lambda::Function", { ReservedConcurrentExecutions: 10 });
+    template.hasResourceProperties("AWS::Lambda::Function", { ReservedConcurrentExecutions: 10, Timeout: 25 });
     template.resourceCountIs("AWS::ApiGateway::Account", 0);
   });
 

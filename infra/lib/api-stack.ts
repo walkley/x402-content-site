@@ -38,7 +38,9 @@ export class ApiStack extends Stack {
       architecture: Architecture.ARM_64,
       memorySize: 256,
       reservedConcurrentExecutions: props.reservedConcurrency,
-      timeout: Duration.seconds(30), // settlement waits for the facilitator to land the tx
+      // Settlement waits for the facilitator to land the tx. Kept under API Gateway's 29 s integration timeout, so a
+      // request that settles is never answered 504 by the gateway after the buyer was charged.
+      timeout: Duration.seconds(25),
       logGroup,
       // JSON format keeps the funnel lines queryable in CloudWatch Logs Insights.
       loggingFormat: LoggingFormat.JSON,
