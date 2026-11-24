@@ -2,12 +2,20 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
 import { HTTPFacilitatorClient, type FacilitatorClient, type RoutesConfig } from "@x402/core/server";
 import type { Network } from "@x402/core/types";
-import { decodePaymentRequiredHeader } from "@x402/core/http";
+import { decodePaymentRequiredHeader, type FacilitatorConfig } from "@x402/core/http";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { InputError } from "./calendar.js";
 import { calendar } from "./data.js";
 import { FunnelLogger } from "./funnel.js";
+import {
+  CDP_FACILITATOR_URL,
+  FACILITATOR_URLS,
+  cdpCredentialLoader,
+  cdpFacilitatorConfig,
+  type FacilitatorKind,
+  type SecretFetcher,
+} from "./facilitator.js";
 import {
   BUSINESS_DAYS_DESCRIPTION,
   BUSINESS_DAYS_EXAMPLE_INPUT,
@@ -28,15 +36,18 @@ import {
 } from "./content.js";
 
 export const DEFAULT_NETWORK = "eip155:84532"; // Base Sepolia
-export const DEFAULT_FACILITATOR_URL = "https://x402.org/facilitator";
-export const WORKDAY_PRICE = "$0.01";
-export const BUSINESS_DAYS_PRICE = "$0.02";
+export const MAINNET_NETWORK = "eip155:8453"; // Base
+export const WORKDAY_PRICE = "$0.003";
+export const BUSINESS_DAYS_PRICE = "$0.005";
 
 export interface AppConfig {
   network: Network;
   payTo: string;
+  facilitatorKind: FacilitatorKind;
   facilitatorUrl: string;
-  /** Override the facilitator (tests). Defaults to HTTPFacilitatorClient(facilitatorUrl). */
+  /** Passed to HTTPFacilitatorClient; carries the CDP auth headers in cdp mode. */
+  facilitatorConfig?: FacilitatorConfig;
+  /** Override the facilitator client entirely (tests). */
   facilitator?: FacilitatorClient;
   /** Public base URL used in /openapi.json and /llms.txt; defaults to the request origin. */
   publicBaseUrl?: string;
@@ -45,19 +56,27 @@ export interface AppConfig {
 
 type Env = Record<string, string | undefined>;
 
-export function configFromEnv(env: Env): AppConfig {
+export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig {
   const payTo = env.X402_PAY_TO?.trim();
   if (!payTo || !/^0x[0-9a-fA-F]{40}$/.test(payTo)) {
     throw new Error("X402_PAY_TO must be set to the 0x... address that receives payments");
   }
   const network = (env.X402_NETWORK?.trim() || DEFAULT_NETWORK) as Network;
   if (!/^eip155:\d+$/.test(network)) throw new Error(`X402_NETWORK must be a CAIP-2 eip155 id, got ${network}`);
-  return {
-    network,
-    payTo,
-    facilitatorUrl: env.X402_FACILITATOR_URL?.trim() || DEFAULT_FACILITATOR_URL,
-    publicBaseUrl: env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || undefined,
-  };
+  const kind = (env.FACILITATOR?.trim() || "x402org") as FacilitatorKind;
+  if (!["x402org", "payai", "cdp"].includes(kind)) {
+    throw new Error(`FACILITATOR must be one of cdp, payai, x402org; got ${kind}`);
+  }
+  if (kind === "x402org" && network === MAINNET_NETWORK) {
+    throw new Error("the x402.org facilitator is testnet only; use FACILITATOR=cdp or payai on Base mainnet");
+  }
+  const base = { network, payTo, facilitatorKind: kind, publicBaseUrl: env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || undefined };
+  if (kind === "cdp") {
+    return { ...base, facilitatorUrl: CDP_FACILITATOR_URL, facilitatorConfig: cdpFacilitatorConfig(cdpCredentialLoader(env, fetchSecret)) };
+  }
+  // X402_FACILITATOR_URL overrides the preset URL for x402org/payai (e.g. a self-hosted facilitator).
+  const facilitatorUrl = env.X402_FACILITATOR_URL?.trim() || FACILITATOR_URLS[kind];
+  return { ...base, facilitatorUrl, facilitatorConfig: { url: facilitatorUrl } };
 }
 
 const PAID_ROUTES: Record<string, (c: Context) => void> = {
@@ -87,7 +106,7 @@ export function createApp(cfg: AppConfig) {
     return header ? inflight.get(header) : undefined;
   };
 
-  const facilitator = cfg.facilitator ?? new HTTPFacilitatorClient({ url: cfg.facilitatorUrl });
+  const facilitator = cfg.facilitator ?? new HTTPFacilitatorClient(cfg.facilitatorConfig ?? { url: cfg.facilitatorUrl });
   const server = new x402ResourceServer(facilitator)
     .register(cfg.network, new ExactEvmScheme())
     .onAfterVerify(async (ctx) => {
@@ -216,7 +235,9 @@ export function createApp(cfg: AppConfig) {
   app.get("/", (c) => c.html(previewHtml(baseUrl(c), prices, calendar.sources)));
   app.get("/llms.txt", (c) => c.text(llmsTxt(baseUrl(c), prices)));
   app.get("/openapi.json", (c) => c.json(openApi(baseUrl(c), prices)));
-  app.get("/health", (c) => c.json({ ok: true, network: cfg.network, data_updated: calendar.dataUpdated }));
+  app.get("/health", (c) =>
+    c.json({ ok: true, network: cfg.network, facilitator: cfg.facilitatorKind, data_updated: calendar.dataUpdated }),
+  );
 
   app.use("/cn/*", funnelAndValidate);
   app.use("/cn/*", paymentMiddleware(routes, server));

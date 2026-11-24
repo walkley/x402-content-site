@@ -11,6 +11,8 @@
   },
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "3.1176.0",
+    "@coinbase/x402": "2.1.0",
     "@x402/core": "2.32.0",
     "@x402/evm": "2.32.0",
     "@x402/extensions": "2.32.0",

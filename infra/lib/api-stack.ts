@@ -3,12 +3,17 @@ import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
 import { Architecture, FunctionUrlAuthType, LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
+import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
 
 export interface ApiStackProps extends StackProps {
   payTo: string;
   network: string;
-  facilitatorUrl: string;
+  facilitator: "x402org" | "payai" | "cdp";
+  /** Override the preset facilitator URL (x402org/payai only). */
+  facilitatorUrl?: string;
+  /** cdp only: name of the Secrets Manager secret holding {"CDP_API_KEY_ID","CDP_API_KEY_SECRET"}. Created by a person, not by this stack. */
+  cdpSecretName: string;
   publicBaseUrl?: string;
 }
 
@@ -32,11 +37,18 @@ export class ApiStack extends Stack {
       environment: {
         X402_PAY_TO: props.payTo,
         X402_NETWORK: props.network,
-        X402_FACILITATOR_URL: props.facilitatorUrl,
+        FACILITATOR: props.facilitator,
+        ...(props.facilitatorUrl ? { X402_FACILITATOR_URL: props.facilitatorUrl } : {}),
+        ...(props.facilitator === "cdp" ? { CDP_SECRET_NAME: props.cdpSecretName } : {}),
         ...(props.publicBaseUrl ? { PUBLIC_BASE_URL: props.publicBaseUrl } : {}),
       },
       bundling: { format: OutputFormat.ESM, target: "node22", minify: true, sourceMap: true },
     });
+
+    if (props.facilitator === "cdp") {
+      // Read access to this one secret only (the ARN wildcard covers Secrets Manager's random suffix).
+      Secret.fromSecretNameV2(this, "CdpApiKey", props.cdpSecretName).grantRead(fn);
+    }
 
     const url = fn.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
     new CfnOutput(this, "ApiUrl", { value: url.url });

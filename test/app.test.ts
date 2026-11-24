@@ -37,6 +37,7 @@ function setup(mode: { verify: boolean; settle: boolean | "throw" }) {
   const app = createApp({
     network: NETWORK,
     payTo: PAY_TO,
+    facilitatorKind: "x402org",
     facilitatorUrl: "http://unused",
     facilitator,
     funnel: new FunnelLogger((l) => lines.push(l)),
@@ -73,8 +74,8 @@ async function paidRequest(app: ReturnType<typeof createApp>, path: string) {
 
 describe("402 without payment", () => {
   it.each([
-    ["/cn/workday?date=2026-02-14", "10000"],
-    ["/cn/business-days?from=2026-09-28&to=2026-10-11", "20000"],
+    ["/cn/workday?date=2026-02-14", "3000"],
+    ["/cn/business-days?from=2026-09-28&to=2026-10-11", "5000"],
   ])("%s returns 402 with correct accepts", async (path, amount) => {
     const { app, events } = setup({ verify: true, settle: true });
     const res = await app.request(path, { headers: UA });
@@ -199,14 +200,36 @@ describe("configFromEnv", () => {
   it("defaults to Base Sepolia and the x402.org facilitator", () => {
     expect(configFromEnv({ X402_PAY_TO: PAY_TO })).toMatchObject({
       network: "eip155:84532",
+      facilitatorKind: "x402org",
       facilitatorUrl: "https://x402.org/facilitator",
     });
   });
-  it("reads overrides and requires a valid payTo", () => {
-    expect(configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "eip155:8453", X402_FACILITATOR_URL: "https://facilitator.payai.network" }))
-      .toMatchObject({ network: "eip155:8453", facilitatorUrl: "https://facilitator.payai.network" });
+  it("selects payai and cdp, and lets X402_FACILITATOR_URL override non-cdp URLs", () => {
+    expect(configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "eip155:8453", FACILITATOR: "payai" }))
+      .toMatchObject({ network: "eip155:8453", facilitatorKind: "payai", facilitatorUrl: "https://facilitator.payai.network" });
+    expect(configFromEnv({ X402_PAY_TO: PAY_TO, FACILITATOR: "cdp" }))
+      .toMatchObject({ facilitatorKind: "cdp", facilitatorUrl: "https://api.cdp.coinbase.com/platform/v2/x402" });
+    expect(configFromEnv({ X402_PAY_TO: PAY_TO, X402_FACILITATOR_URL: "https://f.example" }).facilitatorUrl).toBe("https://f.example");
+  });
+  it("rejects bad values and x402.org on mainnet", () => {
     expect(() => configFromEnv({})).toThrow(/X402_PAY_TO/);
     expect(() => configFromEnv({ X402_PAY_TO: "0x123" })).toThrow(/X402_PAY_TO/);
     expect(() => configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "base" })).toThrow(/CAIP-2/);
+    expect(() => configFromEnv({ X402_PAY_TO: PAY_TO, FACILITATOR: "coinbase" })).toThrow(/FACILITATOR/);
+    expect(() => configFromEnv({ X402_PAY_TO: PAY_TO, X402_NETWORK: "eip155:8453" })).toThrow(/testnet only/);
+  });
+});
+
+describe("prices shown to agents and humans", () => {
+  it("openapi, llms.txt and the preview page carry $0.003 / $0.005", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const oa = await (await app.request("/openapi.json")).json();
+    expect(oa.paths["/cn/workday"].get["x-x402-price"]).toBe("$0.003");
+    expect(oa.paths["/cn/business-days"].get["x-x402-price"]).toBe("$0.005");
+    for (const path of ["/llms.txt", "/"]) {
+      const text = await (await app.request(path)).text();
+      expect(text).toContain("$0.003");
+      expect(text).toContain("$0.005");
+    }
   });
 });

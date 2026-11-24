@@ -8,8 +8,8 @@ The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs 
 
 | Route | Price | Returns |
 |---|---|---|
-| `GET /cn/workday?date=YYYY-MM-DD` | $0.01 | `is_workday`, `is_public_holiday`, `is_makeup_workday`, `holiday_name`, `kind`, `weekday`, `source_url`, `data_updated` |
-| `GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD` | $0.02 | `calendar_days`, `workday_count`, `workdays[]` (inclusive range, at most 366 days, may cross years) |
+| `GET /cn/workday?date=YYYY-MM-DD` | $0.003 | `is_workday`, `is_public_holiday`, `is_makeup_workday`, `holiday_name`, `kind`, `weekday`, `source_url`, `data_updated` |
+| `GET /cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD` | $0.005 | `calendar_days`, `workday_count`, `workdays[]` (inclusive range, at most 366 days, may cross years) |
 | `GET /` | free | Human preview page: description, schema, one example, data update date, source links |
 | `GET /llms.txt` | free | Agent-oriented summary |
 | `GET /openapi.json` | free | OpenAPI 3.1 with full input/output schemas and examples |
@@ -27,19 +27,39 @@ All payment settings come from environment variables. The defaults are testnet v
 |---|---|---|
 | `X402_PAY_TO` | none, required | Address that receives USDC |
 | `X402_NETWORK` | `eip155:84532` (Base Sepolia) | CAIP-2 id |
-| `X402_FACILITATOR_URL` | `https://x402.org/facilitator` | Testnet only |
+| `FACILITATOR` | `x402org` | `x402org`, `payai` or `cdp`, see below |
+| `X402_FACILITATOR_URL` | preset of `FACILITATOR` | Overrides the URL for `x402org`/`payai` only |
+| `CDP_SECRET_NAME` | `x402-content-site/cdp-api-key` | `cdp` only: Secrets Manager secret holding the CDP API key |
 | `PUBLIC_BASE_URL` | request origin | Base URL written into `/openapi.json` and `/llms.txt` |
 | `PORT` | `8787` | Local server only |
+
+| `FACILITATOR` | URL | Use |
+|---|---|---|
+| `x402org` | `https://x402.org/facilitator` | Testnet only. Refused at startup on `eip155:8453`. |
+| `payai` | `https://facilitator.payai.network` | Mainnet without an account: no API key; about 680 free settlements per `payTo`, then top up at merchant.payai.network. Lists in the PayAI directory only. |
+| `cdp` | `https://api.cdp.coinbase.com/platform/v2/x402` | Mainnet with a CDP API key (`@coinbase/x402` builds the JWT auth headers). Needed to be listed in the CDP Bazaar, which is where directory-crawling buyer wallets pay. |
+
+### CDP API key (cdp mode)
+
+The key is read at runtime, never from code or the CDK app. On first use the Lambda reads the secret named by `CDP_SECRET_NAME` from AWS Secrets Manager, caches it for the container's lifetime, and retries on the next request if the read failed. The secret is created by a person, not by the stack:
+
+```bash
+aws secretsmanager create-secret --region ap-northeast-1 \
+  --name x402-content-site/cdp-api-key \
+  --secret-string '{"CDP_API_KEY_ID":"<key id>","CDP_API_KEY_SECRET":"<key secret>"}'
+```
+
+The CDK stack grants the function `secretsmanager:GetSecretValue`/`DescribeSecret` on that one secret only, and only when deployed with `-c facilitator=cdp`. For a local cdp run, `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` in the environment skip Secrets Manager.
 
 ### Mainnet values (not in any default)
 
 | Variable | Value |
 |---|---|
 | `X402_NETWORK` | `eip155:8453` (Base mainnet) |
-| `X402_FACILITATOR_URL` | `https://facilitator.payai.network` (PayAI: no account or API key; about 680 free settlements per `payTo`, then top up at merchant.payai.network) |
+| `FACILITATOR` | `cdp` (CDP Bazaar listing, needs the CDP key secret) or `payai` (no account) |
 | `X402_PAY_TO` | The user's own Base mainnet receiving address (public address only) |
 
-On Base mainnet the asset the server asks for is native USDC `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. The public `x402.org` facilitator must not be used on mainnet. The CDP facilitator needs a CDP account and API key and is not wired in.
+On Base mainnet the asset the server asks for is native USDC `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
 
 ## Local development
 
@@ -70,11 +90,11 @@ Not deployed yet. It needs AWS credentials for the target account and a one-time
 cd infra
 npx cdk synth  -c payTo=0x...                                   # works without credentials
 npx cdk deploy -c payTo=0x...                                   # testnet defaults, ap-northeast-1
-npx cdk deploy -c payTo=0x... -c network=eip155:8453 \
-  -c facilitatorUrl=https://facilitator.payai.network          # mainnet
+npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=cdp     # mainnet, CDP Bazaar
+npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=payai   # mainnet, no account
 ```
 
-Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`. The stack is one arm64 Lambda (256 MB, 30 s timeout, logs kept 90 days, JSON log format) with a public Function URL, printed as the `ApiUrl` output.
+Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`, `facilitatorUrl`, `cdpSecretName`. The stack is one arm64 Lambda (256 MB, 30 s timeout, logs kept 90 days, JSON log format) with a public Function URL, printed as the `ApiUrl` output.
 
 ## Funnel logs
 
@@ -111,4 +131,5 @@ fields @timestamp, stage, route, payer, tx | filter type = "x402_funnel" | stats
 
 1. A Base mainnet receiving address (public address only).
 2. AWS credentials for the target account (and permission to run `cdk bootstrap` once).
-3. A wallet with about $1 of Base USDC, kept by the user, for the first self-payment that gets the endpoint indexed. Add it to `known-addresses.json`.
+3. For `FACILITATOR=cdp`: a CDP account and API key, stored by the user in the Secrets Manager secret above.
+4. A wallet with about $1 of Base USDC, kept by the user, for the first self-payment that gets the endpoint indexed. Add it to `known-addresses.json`.
