@@ -36,7 +36,7 @@ export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
 export const REPO_URL = "https://github.com/walkley/x402-content-site";
 // Also the openapi info.title, which `npx agentcash add` lowercases into a skill name: keep it to letters, digits and spaces, at most 64 characters.
-export const SITE_NAME = "China Workday Calendar and Package Vulnerability Advisories";
+export const SITE_NAME = "China Workday Calendar Package Advisories and SEC Insider Trades";
 
 const DATE_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
 

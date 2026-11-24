@@ -53,12 +53,14 @@ export const MCP_ROUTE_KEY = "POST /mcp";
 export const PAID_MCP_ROUTE_KEY = "POST /paid/mcp";
 export const MCP_THROTTLE = { rateLimit: 2, burstLimit: 5 };
 /**
- * The SEC EDGAR routes call sec.gov, whose fair-access limit is 10 requests per second per client. A paid request makes
- * at most 6 SEC calls (app src/sec.ts MAX_SEC_CALLS_PER_REQUEST; insider trades on a cold cache), latest filings at
- * most 2, so 1 rps on each route keeps the whole API at or below 8 SEC calls per second even if every container is cold.
+ * Everything under /sec, any method and any spelling of the path (HEAD, %2D-encoded...), goes to one route with its
+ * own throttle, so no SEC-calling request can fall through to $default's 10 rps. The app also refuses anything but
+ * GET on the two literal paths. sec.gov's fair-access limit is 10 requests per second; a paid request makes at most
+ * 6 SEC calls (app src/sec.ts MAX_SEC_CALLS_PER_REQUEST), so 1 rps with burst 1 keeps the whole API at about 6 SEC
+ * calls per second whatever the number of containers (10 x 4 calls/s per container would otherwise allow 40).
  */
-export const SEC_ROUTE_KEYS = ["GET /sec/insider-trades", "GET /sec/latest-filings"] as const;
-export const SEC_THROTTLE = { rateLimit: 1, burstLimit: 2 };
+export const SEC_ROUTE_KEY = "ANY /sec/{proxy+}";
+export const SEC_THROTTLE = { rateLimit: 1, burstLimit: 1 };
 
 /** HTTP API access log line ($context variables; the query string is not logged). */
 export const ACCESS_LOG_FIELDS = {
@@ -195,9 +197,7 @@ export class ApiStack extends Stack {
     const target = `integrations/${integration.ref}`;
     const mcpRoute = new CfnRoute(this, "McpRoute", { apiId: api.apiId, routeKey: MCP_ROUTE_KEY, target });
     const paidMcpRoute = new CfnRoute(this, "PaidMcpRoute", { apiId: api.apiId, routeKey: PAID_MCP_ROUTE_KEY, target });
-    const secRoutes = SEC_ROUTE_KEYS.map(
-      (routeKey, i) => new CfnRoute(this, ["SecInsiderTradesRoute", "SecLatestFilingsRoute"][i], { apiId: api.apiId, routeKey, target }),
-    );
+    const secRoute = new CfnRoute(this, "SecRoute", { apiId: api.apiId, routeKey: SEC_ROUTE_KEY, target });
     const stage = new HttpStage(this, "DefaultStage", {
       httpApi: api,
       stageName: "$default",
@@ -216,9 +216,9 @@ export class ApiStack extends Stack {
     (stage.node.defaultChild as CfnStage).routeSettings = {
       [MCP_ROUTE_KEY]: mcpThrottle,
       [PAID_MCP_ROUTE_KEY]: mcpThrottle,
-      ...Object.fromEntries(SEC_ROUTE_KEYS.map((k) => [k, secThrottle])),
+      [SEC_ROUTE_KEY]: secThrottle,
     };
-    stage.node.addDependency(mcpRoute, paidMcpRoute, ...secRoutes); // the stage's route settings name the routes, so they must exist first
+    stage.node.addDependency(mcpRoute, paidMcpRoute, secRoute); // the stage's route settings name the routes, so they must exist first
 
     // The app uses its public base URL in /openapi.json, /llms.txt, the 402 body and iconUrl.
     if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", api.apiEndpoint);

@@ -24,11 +24,12 @@ export const MAX_SEC_CALLS_PER_REQUEST = 2 + INSIDER_FILINGS;
 export const SEC_RATE_PER_SEC = 4;
 export const TICKERS_TTL_MS = 24 * 60 * 60 * 1000;
 export const SUBMISSIONS_TTL_MS = 10 * 60 * 1000;
-// Memory bounds per Lambda container (256 MB), measured with full caches on 2026-11-24: 100 companies x 300 filings
-// about 25 MB; 1,000 parsed Form 4 documents of 9 transactions each about 22 MB.
-const SUBMISSIONS_MAX_ENTRIES = 100;
+// Memory bounds per Lambda container (256 MB). A raw submissions JSON is about 1 MB on the heap (AAPL, 1,005
+// filings, measured in review); only SUBMISSIONS_MAX_FILINGS compact rows of it are kept, so 50 companies stay
+// in a few MB. 1,000 parsed Form 4 documents of 9 transactions each are about 22 MB (measured 2026-11-24).
+export const SUBMISSIONS_MAX_ENTRIES = 50;
 /** Filings kept per company, newest first: enough for the 4 latest Form 4s and limit=50 of a common form. */
-export const SUBMISSIONS_MAX_FILINGS = 300;
+export const SUBMISSIONS_MAX_FILINGS = 200;
 /** Filed Form 4 documents never change (an amendment is a new accession), so they are kept until evicted. */
 const FORM4_MAX_ENTRIES = 1_000;
 export const MAX_FILINGS_LIMIT = 50;
@@ -288,11 +289,32 @@ export interface FilingsResult {
   source: string;
 }
 
+/** One filing as cached: accession, form, filing date, report date, acceptance time, 8-K items, primary document, description. */
+type Row = [string, string, string, string | null, string | null, string, string, string | null];
+
 interface Submissions {
   expires: number;
   fetchedAt: string;
   issuer: Issuer;
-  filings: (Filing & { primary_document: string })[];
+  rows: Row[];
+}
+
+function toFiling(cik: string, [acc, form, filed, reported, accepted, items, doc, description]: Row): Filing {
+  return {
+    accession_number: acc,
+    form,
+    filing_date: filed,
+    report_date: reported,
+    accepted_at: accepted,
+    items: items
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((item) => ({ item, title: FORM_8K_ITEMS[item] ?? null })),
+    description,
+    document_url: `${archive(cik, acc)}/${doc}`,
+    index_url: `${archive(cik, acc)}/${acc}-index.htm`,
+  };
 }
 
 interface SubmissionsJson {
@@ -322,6 +344,17 @@ export class SecClient {
   private readonly pending = new Map<string, Promise<unknown>>();
   private nextSlot = 0;
   upstreamCalls = 0;
+
+  /** Cache sizes, for tests: submissions entries and, per entry, kept filings and serialized bytes. */
+  cacheStats() {
+    const entries = [...this.submissions.values()];
+    return {
+      submissions: entries.length,
+      maxFilings: Math.max(0, ...entries.map((e) => e.rows.length)),
+      maxEntryBytes: Math.max(0, ...entries.map((e) => JSON.stringify(e).length)),
+      form4: this.form4.size,
+    };
+  }
 
   constructor(
     private readonly userAgent: string,
@@ -393,6 +426,7 @@ export class SecClient {
   private async submissionsOf(cik: string, budget: Budget): Promise<Submissions> {
     const hit = this.submissions.get(cik);
     if (hit && hit.expires > this.now()) return hit;
+    if (hit) this.submissions.delete(cik); // expired: free it now, not only when evicted
     return this.shared(`sub:${cik}`, async () => {
       const body = (await this.get(`${SEC_DATA}/submissions/CIK${cik}.json`, budget, "json")) as SubmissionsJson | null;
       if (body === null) throw new InputError("unknown_cik", `no SEC EDGAR filer with CIK ${cik}`, 404);
@@ -402,32 +436,23 @@ export class SecClient {
         const v = (r[k] as unknown[] | undefined)?.[i];
         return typeof v === "string" && v !== "" ? v : null;
       };
-      const filings = r.accessionNumber.slice(0, SUBMISSIONS_MAX_FILINGS).map((acc, i) => {
-        const accession = String(acc);
-        const doc = col("primaryDocument", i) ?? "";
-        return {
-          accession_number: accession,
-          form: col("form", i) ?? "",
-          filing_date: col("filingDate", i) ?? "",
-          report_date: col("reportDate", i),
-          accepted_at: col("acceptanceDateTime", i),
-          items: (col("items", i) ?? "")
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((item) => ({ item, title: FORM_8K_ITEMS[item] ?? null })),
-          description: col("primaryDocDescription", i),
-          document_url: `${archive(cik, accession)}/${doc}`,
-          index_url: `${archive(cik, accession)}/${accession}-index.htm`,
-          primary_document: doc,
-        };
-      });
+      // Only the compact rows are kept; the parsed body (about 1 MB for a large filer) is dropped after this.
+      const rows: Row[] = r.accessionNumber.slice(0, SUBMISSIONS_MAX_FILINGS).map((acc, i) => [
+        String(acc),
+        col("form", i) ?? "",
+        col("filingDate", i) ?? "",
+        col("reportDate", i),
+        col("acceptanceDateTime", i),
+        col("items", i) ?? "",
+        col("primaryDocument", i) ?? "",
+        col("primaryDocDescription", i),
+      ]);
       const now = this.now();
       const entry: Submissions = {
         expires: now + SUBMISSIONS_TTL_MS,
         fetchedAt: new Date(now).toISOString(),
         issuer: { cik, name: body.name ?? "", tickers: Array.isArray(body.tickers) ? body.tickers.map(String) : [] },
-        filings,
+        rows,
       };
       // shortcut: oldest-first eviction at a fixed entry cap bounds memory per Lambda container.
       if (this.submissions.size >= SUBMISSIONS_MAX_ENTRIES) this.submissions.delete(this.submissions.keys().next().value!);
@@ -437,17 +462,17 @@ export class SecClient {
     });
   }
 
-  private async form4Of(cik: string, f: Submissions["filings"][number], budget: Budget): Promise<Form4> {
-    const hit = this.form4.get(f.accession_number);
+  private async form4Of(cik: string, [acc, , , , , , doc]: Row, budget: Budget): Promise<Form4> {
+    const hit = this.form4.get(acc);
     if (hit) return hit;
-    return this.shared(`f4:${f.accession_number}`, async () => {
+    return this.shared(`f4:${acc}`, async () => {
       // primaryDocument points at the XSL-rendered view (xslF345X06/form4.xml); the raw XML sits beside it.
-      const raw = f.primary_document.replace(/^xsl[^/]*\//, "");
-      const xml = await this.get(`${archive(cik, f.accession_number)}/${raw}`, budget, "text");
+      const raw = doc.replace(/^xsl[^/]*\//, "");
+      const xml = await this.get(`${archive(cik, acc)}/${raw}`, budget, "text");
       if (typeof xml !== "string" || !xml.includes("<ownershipDocument")) throw new UpstreamError("SEC EDGAR Form 4 document unavailable");
       const parsed = parseForm4(xml);
       if (this.form4.size >= FORM4_MAX_ENTRIES) this.form4.delete(this.form4.keys().next().value!);
-      this.form4.set(f.accession_number, parsed);
+      this.form4.set(acc, parsed);
       return parsed;
     });
   }
@@ -457,10 +482,10 @@ export class SecClient {
     const budget = this.budget(deadline);
     const cik = await this.cikOf(q, budget);
     const sub = await this.submissionsOf(cik, budget);
-    const recent = sub.filings.filter((f) => (f.form === "4" || f.form === "4/A") && f.primary_document.endsWith(".xml")).slice(0, INSIDER_FILINGS);
+    const recent = sub.rows.filter(([, form, , , , , doc]) => (form === "4" || form === "4/A") && doc.endsWith(".xml")).slice(0, INSIDER_FILINGS);
     // Fetched together; get() spaces the requests out at SEC_RATE_PER_SEC.
-    const docs = await Promise.all(recent.map((f) => this.form4Of(cik, f, budget)));
-    const transactions = recent.flatMap((f, i) =>
+    const docs = await Promise.all(recent.map((row) => this.form4Of(cik, row, budget)));
+    const transactions = recent.map((row) => toFiling(cik, row)).flatMap((f, i) =>
       docs[i].transactions.map((t) => ({
         accession_number: f.accession_number,
         form: f.form,
@@ -486,10 +511,10 @@ export class SecClient {
     const budget = this.budget(deadline);
     const cik = await this.cikOf(q, budget);
     const sub = await this.submissionsOf(cik, budget);
-    const filings = sub.filings
-      .filter((f) => !q.form || f.form === q.form)
+    const filings = sub.rows
+      .filter(([, form]) => !q.form || form === q.form)
       .slice(0, q.limit)
-      .map(({ primary_document: _, ...f }) => f);
+      .map((row) => toFiling(cik, row));
     return {
       issuer: sub.issuer,
       form: q.form ?? null,

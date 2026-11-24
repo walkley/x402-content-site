@@ -9,6 +9,7 @@ import { FunnelLogger } from "../src/funnel.js";
 import { OsvClient } from "../src/advisories.js";
 import { fakeOsvFetch } from "./helpers/osv.js";
 import { SecClient } from "../src/sec.js";
+import { INSIDER_TRADES_DESCRIPTION } from "../src/content-sec.js";
 import { fakeSecFetch } from "./helpers/sec.js";
 
 const PAY_TO = "0x96B16408be584E863Ab3f05703059e302c474f0A";
@@ -56,7 +57,13 @@ function setup(mode: { verify: boolean; settle: boolean | "throw" }, osv?: OsvCl
 
 const UA = { "user-agent": "vitest-agent/1.0" };
 
-async function paidRequest(app: ReturnType<typeof createApp>, path: string, init: { method?: string; body?: string } = {}) {
+async function paidRequest(
+  app: ReturnType<typeof createApp>,
+  path: string,
+  init: { method?: string; body?: string } = {},
+  /** Send the signed payment to another path or method than the one quoted (bypass attempts). */
+  send: { path?: string; method?: string } = {},
+) {
   const json: Record<string, string> = init.body ? { "content-type": "application/json" } : {};
   const first = await app.request(path, { ...init, headers: { ...UA, ...json } });
   const required = decodePaymentRequiredHeader(first.headers.get("payment-required")!);
@@ -78,7 +85,11 @@ async function paidRequest(app: ReturnType<typeof createApp>, path: string, init
     },
     extensions: required.extensions,
   } as PaymentPayload;
-  return app.request(path, { ...init, headers: { ...UA, ...json, "payment-signature": encodePaymentSignatureHeader(payload) } });
+  return app.request(send.path ?? path, {
+    ...init,
+    ...(send.method ? { method: send.method } : {}),
+    headers: { ...UA, ...json, "payment-signature": encodePaymentSignatureHeader(payload) },
+  });
 }
 
 describe("402 without payment", () => {
@@ -518,7 +529,8 @@ describe("titles name the services", () => {
     const oa = await (await app.request("/openapi.json")).json();
     for (const title of [oa.info.title, (await (await app.request("/llms.txt")).text()).split("\n")[0]]) {
       expect(title).toContain("China Workday Calendar");
-      expect(title).toContain("Package Vulnerability Advisories");
+      expect(title).toContain("Package Advisories");
+      expect(title).toContain("SEC");
     }
     expect(oa.info.contact).toEqual({ name: "Source and issues", url: "https://github.com/walkley/x402-content-site" });
     expect(oa.info.contact.email).toBeUndefined();
@@ -877,6 +889,29 @@ describe("SEC EDGAR endpoints", () => {
     expect((await res.json()).message).toMatch(/deadline/);
     expect(res.headers.get("payment-response")).toBeNull();
     expect(sec.upstreamCalls).toBe(0);
+  });
+
+  it.each([
+    ["HEAD", AAPL, 405],
+    ["POST", AAPL, 405],
+    ["GET", "/sec/insider%2Dtrades?ticker=AAPL", 404],
+    ["GET", "/sec/latest%2Dfilings?ticker=AAPL", 404],
+    ["GET", "/sec/insider-trades/?ticker=AAPL", 404],
+  ])("paid %s %s is refused (%i) before payment verification: no SEC call, nothing settled", async (method, path, status) => {
+    const sec = secClient();
+    const { app, facilitator } = setup({ verify: true, settle: true }, undefined, sec);
+    const res = await paidRequest(app, AAPL, {}, { path, method });
+    expect(res.status).toBe(status);
+    expect(facilitator.verifyCalls).toBe(0);
+    expect(facilitator.settleCalls).toBe(0);
+    expect(sec.upstreamCalls).toBe(0);
+    const unpaid = await app.request(path, { method, headers: UA });
+    expect(unpaid.status).toBe(status);
+    expect(unpaid.headers.get("payment-required")).toBeNull();
+  });
+
+  it("a known company with no recent Form 4 returns an empty list (charged) and says so in its description", async () => {
+    expect(INSIDER_TRADES_DESCRIPTION).toContain("empty transactions list (charged)");
   });
 
   it("openapi, llms.txt, SKILL.md and the preview page describe the SEC endpoints with prices and the no-endorsement note", async () => {

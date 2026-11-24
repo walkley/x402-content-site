@@ -8,6 +8,8 @@ import {
   SEC_DEADLINE_MS,
   SEC_RATE_PER_SEC,
   SEC_SOURCE_NOTE,
+  SUBMISSIONS_MAX_ENTRIES,
+  SUBMISSIONS_MAX_FILINGS,
   SUBMISSIONS_TTL_MS,
   SecClient,
   isSecProbe,
@@ -202,6 +204,25 @@ describe("SecClient with recorded fixtures", () => {
     expect(c.upstreamCalls).toBe(0);
     const fresh = new SecClient("ua", fakeSecFetch().fn, () => now, noWait);
     await expect(fresh.latestFilings({ ticker: "AAPL", limit: 1 }, now + 1_000)).resolves.toMatchObject({ count: 1 });
+  });
+
+  it("submissions cache is bounded: at most 50 companies, 200 compact filings each, small entries", async () => {
+    // A large filer: the real AAPL rows repeated to 1,005 filings, like the full AAPL submissions JSON.
+    const sub = JSON.parse(readFileSync(new URL("./fixtures/sec/submissions-CIK0000320193.json", import.meta.url), "utf8"));
+    const r = sub.filings.recent as Record<string, unknown[]>;
+    for (const k of Object.keys(r)) r[k] = Array.from({ length: 1005 }, (_, i) => r[k][i % 30]);
+    const body = JSON.stringify(sub);
+    const fn = (async () => new Response(body)) as unknown as typeof fetch;
+    let now = 0;
+    const c = new SecClient("ua", fn, () => now, async (ms) => void (now += ms));
+    for (let i = 1; i <= SUBMISSIONS_MAX_ENTRIES + 10; i++) await c.latestFilings({ cik: String(i), limit: 50 });
+    const stats = c.cacheStats();
+    expect(SUBMISSIONS_MAX_ENTRIES).toBeLessThanOrEqual(50);
+    expect(stats.submissions).toBe(SUBMISSIONS_MAX_ENTRIES);
+    expect(stats.maxFilings).toBe(SUBMISSIONS_MAX_FILINGS);
+    expect(SUBMISSIONS_MAX_FILINGS).toBeLessThanOrEqual(200);
+    // ~150 bytes per kept filing; the raw JSON was ~1 MB on the heap
+    expect(stats.maxEntryBytes).toBeLessThan(40_000);
   });
 
   it("concurrent requests for the same company share the upstream calls", async () => {

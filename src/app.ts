@@ -629,6 +629,15 @@ export function createApp(cfg: AppConfig) {
 
   // Batch bodies are at most 50 small objects; refuse anything larger before parsing.
   app.use("/deps/advisories/batch", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
+  // /sec/* before anything else (and so before any payment is verified): only GET on the two literal paths. A HEAD or
+  // a percent-encoded path such as /sec/insider%2Dtrades would otherwise reach the handler (Hono routes HEAD as GET and
+  // matches decoded paths) through a request API Gateway may not count against the SEC route's throttle.
+  app.use("/sec/*", async (c, next) => {
+    const raw = new URL(c.req.url).pathname;
+    if (raw !== "/sec/insider-trades" && raw !== "/sec/latest-filings") return c.json({ error: "not_found" }, 404);
+    if (c.req.method !== "GET") return c.json({ error: "method_not_allowed", message: "use GET" }, 405, { Allow: "GET" });
+    return next();
+  });
   const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
   for (const prefix of ["/cn/*", "/deps/*", "/sec/*"]) {
     app.use(prefix, (_c, next) => deadline.run(Date.now() + requestDeadlineMs, next));

@@ -88,6 +88,12 @@ describe("HTTP API ($default stage) adapter", () => {
     expect(pr.accepts[0].amount).toBe("3000");
   });
 
+  it("refuses HEAD and a percent-encoded /sec path from an API Gateway event before payment", async () => {
+    expect((await call(httpEvent("HEAD", "/sec/insider-trades", { ticker: "AAPL" }))).statusCode).toBe(405);
+    expect((await call(httpEvent("GET", "/sec/insider%2Dtrades", { ticker: "AAPL" }))).statusCode).toBe(404);
+    expect((await call(httpEvent("GET", "/sec/insider-trades", { ticker: "AAPL" }))).statusCode).toBe(402);
+  });
+
   it("validates input before payment (free 400)", async () => {
     expect((await call(httpEvent("GET", "/cn/workday", { date: "2026-13-01" }))).statusCode).toBe(400);
   });
