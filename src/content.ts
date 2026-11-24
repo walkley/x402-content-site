@@ -201,7 +201,7 @@ export function openApi(baseUrl: string, p: PriceInfo) {
               name: "date",
               in: "query",
               required: false,
-              description: "Default: today in Asia/Shanghai when date is omitted. Do not combine with from/to (400).",
+              description: "Default: today in Asia/Shanghai when date is omitted. Other query keys (except src) are a free 400 unknown_param.",
               schema: WORKDAY_INPUT_SCHEMA.properties.date,
             },
           ],

@@ -212,16 +212,26 @@ function cnDefault<T>(c: Context, make: () => T): T {
   return value;
 }
 
-function workdayDate(c: Context): unknown {
-  const { date, from, to } = c.req.query();
-  if (from !== undefined || to !== undefined) {
-    throw new InputError("invalid_params", "/cn/workday takes only date; use /cn/business-days for from and to");
+/**
+ * Rejects query keys outside the route's list, so a misspelt parameter (?day=, ?Date=, ?start=) is a free 400 before
+ * payment instead of a paid answer for the default day. src stays allowed: the MCP over-quota link adds src=mcp.
+ */
+function knownQuery(c: Context, allowed: string[]): Record<string, string> {
+  const query = c.req.query();
+  const unknown = Object.keys(query).filter((k) => !allowed.includes(k));
+  if (unknown.length > 0) {
+    throw new InputError("unknown_param", `unknown query parameter ${unknown.join(", ")}; allowed: ${allowed.join(", ")}`);
   }
+  return query;
+}
+
+function workdayDate(c: Context): unknown {
+  const { date } = knownQuery(c, ["date", "src"]);
   return date !== undefined ? date : cnDefault(c, () => chinaToday());
 }
 
 function businessDaysRange(c: Context): { from: unknown; to: unknown } {
-  const { from, to } = c.req.query();
+  const { from, to } = knownQuery(c, ["from", "to", "src"]);
   return from === undefined && to === undefined ? cnDefault(c, () => chinaThisMonth()) : { from, to };
 }
 

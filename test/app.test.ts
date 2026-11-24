@@ -128,8 +128,12 @@ describe("402 without payment", () => {
 describe("invalid input is rejected before payment (not charged)", () => {
   it.each([
     ["/cn/workday?date=", 400, "invalid_date"],
-    ["/cn/workday?from=2026-02-14", 400, "invalid_params"],
-    ["/cn/workday?date=2026-02-14&to=2026-02-20", 400, "invalid_params"],
+    ["/cn/workday?from=2026-02-14", 400, "unknown_param"],
+    ["/cn/workday?date=2026-02-14&to=2026-02-20", 400, "unknown_param"],
+    ["/cn/workday?day=2026-02-14", 400, "unknown_param"],
+    ["/cn/workday?Date=2026-02-14", 400, "unknown_param"],
+    ["/cn/business-days?start=2026-01-05&end=2026-01-16", 400, "unknown_param"],
+    ["/cn/business-days?from=2026-01-05&to=2026-01-16&date=2026-01-05", 400, "unknown_param"],
     ["/cn/workday?date=2026-02-30", 400, "invalid_date"],
     ["/cn/workday?date=2030-01-01", 404, "year_not_covered"],
     ["/cn/business-days?from=2026-01-01&to=2027-01-02", 400, "range_too_large"],
@@ -328,6 +332,35 @@ describe("paid /cn requests with no parameters use Asia/Shanghai defaults", () =
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ from: "2026-10-01", to: "2026-10-31", calendar_days: 31 });
     expect(facilitator.settleCalls).toBe(1);
+  });
+
+  it("?src=mcp alone still gets the defaults", async () => {
+    vi.setSystemTime(Date.UTC(2026, 8, 30, 16, 30));
+    const { app, facilitator } = setup({ verify: true, settle: true });
+    const day = await paidRequest(app, "/cn/workday?src=mcp");
+    expect(day.status).toBe(200);
+    expect(await day.json()).toMatchObject({ date: "2026-10-01" });
+    const month = await paidRequest(app, "/cn/business-days?src=mcp");
+    expect(month.status).toBe(200);
+    expect(await month.json()).toMatchObject({ from: "2026-10-01", to: "2026-10-31" });
+    expect(facilitator.settleCalls).toBe(2);
+  });
+
+  it("a misspelt key with a payment is a free 400 unknown_param, never verified or settled", async () => {
+    for (const [path, allowed] of [
+      ["/cn/workday?day=2026-10-08", "date, src"],
+      ["/cn/business-days?start=2026-10-01&end=2026-10-31", "from, to, src"],
+    ]) {
+      const { app, facilitator } = setup({ verify: true, settle: true });
+      // sign the route's real quote (bare request), then send the payment with the misspelt key
+      const res = await paidRequest(app, path.split("?")[0], {}, { path });
+      expect(res.status, path).toBe(400);
+      const body = await res.json();
+      expect(body).toMatchObject({ error: "unknown_param" });
+      expect(body.message).toContain(`allowed: ${allowed}`);
+      expect(res.headers.get("payment-required")).toBeNull();
+      expect(facilitator.verifyCalls + facilitator.settleCalls, path).toBe(0);
+    }
   });
 
   it("a default in an uncovered year (2028) is a free 404 before verify and settle", async () => {
