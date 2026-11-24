@@ -175,6 +175,10 @@ function prepare(name: string, args: Json, osv: OsvClient): () => Promise<unknow
     return async () => ({ ...calendar.businessDays(args.from, args.to), data_updated: calendar.dataUpdated });
   }
   if (name === SEC_TOOL) {
+    // parseCompanyQuery ignores non-strings, which would put e.g. cik=320193 (a number) into a link the paid route rejects.
+    for (const k of ["ticker", "cik"] as const) {
+      if (args[k] !== undefined && typeof args[k] !== "string") throw new InputError("invalid_arguments", `${k} must be a string`);
+    }
     parseCompanyQuery(args);
     return async () => {
       throw new Error(`${SEC_TOOL} has no free calls`); // never run: callTool answers with the payment link first
@@ -414,6 +418,8 @@ export function mcpManifest(baseUrl: string, d: Pick<McpDeps, "perIpDaily" | "gl
     free_tier: {
       calls_per_ip_per_day: d.perIpDaily,
       global_calls_per_day: d.globalDaily,
+      excluded_tools: [SEC_TOOL],
+      excluded_note: `${SEC_TOOL} is not in the free quota: it is paid only and always answers with a payment link.`,
       privacy: PRIVACY_NOTE,
       after_quota: "tool error naming the x402 pay-per-call URL and price, with a payment link {url, status: 402, challenge} in structuredContent",
     },

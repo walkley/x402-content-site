@@ -746,6 +746,9 @@ describe("sec_insider_trades: paid only, never calls SEC", () => {
       [{ ticker: "AAPL", cik: "320193" }, "invalid_arguments"],
       [{ ticker: "not a ticker!" }, "invalid_ticker"],
       [{ cik: "0" }, "invalid_cik"],
+      [{ ticker: "AAPL", cik: 320193 }, "invalid_arguments"],
+      [{ ticker: 42 }, "invalid_arguments"],
+      [{ cik: null }, "invalid_arguments"],
     ] as const) {
       const r = (await call("sec_insider_trades", args)).result;
       expect(r.content[0].text).toMatch(new RegExp(`^${code}`));
@@ -772,6 +775,8 @@ describe("sec_insider_trades: paid only, never calls SEC", () => {
     expect(s.examples).toEqual([{ ticker: "AAPL" }, { cik: "320193" }]);
     const m = await (await app.request("/.well-known/mcp.json")).json();
     expect(m.payment.prices.sec_insider_trades).toBe("$0.003");
+    expect(m.free_tier.excluded_tools).toEqual(["sec_insider_trades"]);
+    expect(m.free_tier.excluded_note).toContain("not in the free quota");
     expect(m.tools.map((t: { name: string }) => t.name)).toContain("sec_insider_trades");
   });
 });

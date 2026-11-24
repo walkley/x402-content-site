@@ -187,7 +187,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
     paths: {
       "/cn/workday": {
         get: {
-          summary: WORKDAY_DESCRIPTION,
+          operationId: "china_working_day",
+          summary: "Is this date a working day in China",
+          description: WORKDAY_DESCRIPTION,
           tags: [SERVICE_NAME],
           "x-payment-info": paymentInfo(p.workdayPrice),
           "x-x402-price": p.workdayPrice,
@@ -203,7 +205,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       },
       "/cn/business-days": {
         get: {
-          summary: BUSINESS_DAYS_DESCRIPTION,
+          operationId: "china_business_days",
+          summary: "Count working days in China between two dates",
+          description: BUSINESS_DAYS_DESCRIPTION,
           tags: [SERVICE_NAME],
           "x-payment-info": paymentInfo(p.businessDaysPrice),
           "x-x402-price": p.businessDaysPrice,
@@ -222,7 +226,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       },
       "/deps/advisories": {
         get: {
-          summary: ADVISORIES_DESCRIPTION,
+          operationId: "package_vulnerabilities",
+          summary: "Check package vulnerabilities before install",
+          description: ADVISORIES_DESCRIPTION,
           tags: [DEPS_SERVICE_NAME],
           "x-payment-info": paymentInfo(p.advisoriesPrice),
           "x-x402-price": p.advisoriesPrice,
@@ -242,7 +248,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       },
       "/deps/advisories/batch": {
         post: {
-          summary: BATCH_DESCRIPTION,
+          operationId: "package_vulnerabilities_batch",
+          summary: "Batch check package vulnerabilities before install",
+          description: BATCH_DESCRIPTION,
           tags: [DEPS_SERVICE_NAME],
           "x-payment-info": paymentInfo(p.batchPrice),
           "x-x402-price": p.batchPrice,
@@ -257,8 +265,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       },
       "/sec/insider-trades": {
         get: {
-          summary: INSIDER_TRADES_DESCRIPTION,
-          description: "Pass exactly one of ticker or cik.",
+          operationId: "insider_trades",
+          summary: "SEC Form 4 insider trades",
+          description: INSIDER_TRADES_DESCRIPTION,
           tags: [SEC_SERVICE_NAME],
           "x-payment-info": paymentInfo(p.insiderTradesPrice),
           "x-x402-price": p.insiderTradesPrice,
@@ -274,8 +283,9 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       },
       "/sec/latest-filings": {
         get: {
-          summary: LATEST_FILINGS_DESCRIPTION,
-          description: "Pass exactly one of ticker or cik.",
+          operationId: "sec_filings",
+          summary: "Latest SEC filings for a company",
+          description: LATEST_FILINGS_DESCRIPTION,
           tags: [SEC_SERVICE_NAME],
           "x-payment-info": paymentInfo(p.latestFilingsPrice),
           "x-x402-price": p.latestFilingsPrice,

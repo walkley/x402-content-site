@@ -8,9 +8,9 @@ export const SEC_TAGS = ["sec", "edgar", "insider-trading", "form-4", "filings",
 export const INSIDER_TRADES_DESCRIPTION =
   "Recent insider trading for a US public company: SEC Form 4 filings parsed into structured JSON. " +
   `Look up by stock ticker (e.g. AAPL) or SEC CIK; returns every transaction in the ${INSIDER_FILINGS} most recent Form 4 / 4/A filings: ` +
-  "insider name and role (director, officer title, 10% owner), transaction date, transaction code (P purchase, S sale, A award, M exercise, F tax withholding...), " +
-  "shares, price per share, shares owned after, direct/indirect, Rule 10b5-1 plan flag and the filing link. " +
-  "A company with no recent Form 4 returns an empty transactions list (charged); an unknown ticker or CIK is a free 404. Data from SEC EDGAR, fetched live.";
+  "insider name and role, date, code (P purchase, S sale, A award, M exercise...), shares, price, shares owned after, " +
+  "10b5-1 plan flag and filing link. No recent Form 4 returns an empty transactions list (charged); an unknown ticker or CIK is a free 404. " +
+  "Data from SEC EDGAR, fetched live.";
 export const LATEST_FILINGS_DESCRIPTION =
   "Latest SEC filings for a US public company by ticker or CIK: 8-K (with item numbers and titles, e.g. 2.02 earnings results), 10-K, 10-Q, Form 4, S-1 and others. " +
   `Optional form filter (e.g. form=8-K) and limit (1-${MAX_FILINGS_LIMIT}, default ${DEFAULT_FILINGS_LIMIT}). ` +
