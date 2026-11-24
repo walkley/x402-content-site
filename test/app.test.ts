@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { FacilitatorClient } from "@x402/core/server";
 import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePaymentSignatureHeader } from "@x402/core/http";
-import { configFromEnv, createApp } from "../src/app.js";
+import { BATCH_PRICE, configFromEnv, createApp } from "../src/app.js";
+import { ADVISORIES_DESCRIPTION, BATCH_DESCRIPTION } from "../src/content-deps.js";
+import { perPackagePrice } from "../src/content.js";
 import { FunnelLogger } from "../src/funnel.js";
 import { OsvClient } from "../src/advisories.js";
 import { fakeOsvFetch } from "./helpers/osv.js";
@@ -78,8 +80,8 @@ async function paidRequest(app: ReturnType<typeof createApp>, path: string, init
 
 describe("402 without payment", () => {
   it.each([
-    ["/cn/workday?date=2026-02-14", "3000"],
-    ["/cn/business-days?from=2026-09-28&to=2026-10-11", "5000"],
+    ["/cn/workday?date=2026-10-08", "3000"],
+    ["/cn/business-days?from=2026-01-05&to=2026-01-16", "5000"],
   ])("%s returns 402 with correct accepts", async (path, amount) => {
     const { app, events } = setup({ verify: true, settle: true });
     const res = await app.request(path, { headers: UA });
@@ -99,7 +101,10 @@ describe("402 without payment", () => {
     expect(bazaar.info.output.example).toBeTruthy();
     expect(bazaar.schema).toBeTruthy();
     expect(required.resource).toMatchObject({ serviceName: "China Workday Calendar" });
-    expect(await res.text()).not.toContain("is_workday\":"); // no paid content
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "Payment required", currency: "USDC", network: NETWORK });
+    // no paid content: the body only carries the fixed documentation example, never this request's answer
+    expect(JSON.stringify(body)).not.toContain(path.includes("workday") ? '"date":"2026-10-08"' : '"from":"2026-01-05"');
     expect(events().map((e) => e.stage)).toEqual(["request", "402_returned"]);
     expect(events()[0]).toMatchObject({ route: path.split("?")[0], user_agent: "vitest-agent/1.0", type: "x402_funnel" });
     expect(events()[0].ts).toMatch(/^\d{4}-\d\d-\d\dT/);
@@ -108,7 +113,8 @@ describe("402 without payment", () => {
 
 describe("invalid input is rejected before payment (not charged)", () => {
   it.each([
-    ["/cn/workday", 400, "invalid_date"],
+    ["/cn/workday?date=", 400, "invalid_date"],
+    ["/cn/workday?day=2026-02-14", 400, "invalid_date"],
     ["/cn/workday?date=2026-02-30", 400, "invalid_date"],
     ["/cn/workday?date=2030-01-01", 404, "year_not_covered"],
     ["/cn/business-days?from=2026-01-01&to=2027-01-02", 400, "range_too_large"],
@@ -203,6 +209,119 @@ describe("free routes", () => {
     }
     expect(await (await app.request("/health")).json()).toMatchObject({ ok: true, network: NETWORK });
     expect(events()).toHaveLength(0);
+  });
+});
+
+describe("bare probes (no input at all) get a 402 quote, not a 400", () => {
+  it.each([
+    ["/cn/workday", "GET", "3000", "$0.003", "/cn/workday?date=2026-02-14"],
+    ["/cn/business-days", "GET", "5000", "$0.005", "/cn/business-days?from=2026-09-28&to=2026-10-11"],
+    ["/deps/advisories", "GET", "5000", "$0.005", "/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20"],
+    ["/deps/advisories/batch", "POST", "20000", "$0.02", "/deps/advisories/batch"],
+  ])("%s %s -> 402 with bazaar example and a self-describing body", async (path, method, amount, price, examplePath) => {
+    const osv = new OsvClient(fakeOsvFetch().fn);
+    const { app, facilitator, events } = setup({ verify: true, settle: true }, osv);
+    const res = await app.request(path, { method, headers: UA });
+    expect(res.status).toBe(402);
+    const required = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
+    expect(required.accepts[0].amount).toBe(amount);
+    const bazaar = required.extensions?.bazaar as { info: { input: unknown; output: { example: unknown } } };
+    expect(bazaar.info.input).toBeTruthy();
+    expect(bazaar.info.output.example).toBeTruthy();
+    const body = await res.json();
+    expect(body).toMatchObject({
+      error: "Payment required",
+      price,
+      currency: "USDC",
+      network: NETWORK,
+      docs: "http://localhost/openapi.json",
+      llms_txt: "http://localhost/llms.txt",
+      example: { request: { method, url: `http://localhost${examplePath}` } },
+    });
+    expect(body.how_to_pay).toContain("PAYMENT-SIGNATURE");
+    expect(body.example.response).toBeTruthy();
+    if (method === "POST") expect(body.example.request.body).toEqual({ packages: [{ ecosystem: "npm", name: "lodash", version: "4.17.20" }] });
+    expect(events().map((e) => e.stage)).toEqual(["request", "402_returned"]);
+    expect(facilitator.verifyCalls + facilitator.settleCalls + osv.upstreamCalls).toBe(0);
+  });
+
+  it("a bare POST with whitespace only is also quoted", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const res = await app.request("/deps/advisories/batch", { method: "POST", body: "  \n", headers: { "content-type": "application/json" } });
+    expect(res.status).toBe(402);
+  });
+
+  it("a bare request that carries a payment is validated and rejected free, never verified or settled", async () => {
+    for (const [path, method] of [["/cn/workday", "GET"], ["/deps/advisories/batch", "POST"]] as const) {
+      const { app, facilitator } = setup({ verify: true, settle: true });
+      const res = await app.request(path, { method, headers: { ...UA, "payment-signature": "e30=" } });
+      expect(res.status).toBe(400);
+      expect(res.headers.get("payment-required")).toBeNull();
+      expect(facilitator.verifyCalls + facilitator.settleCalls).toBe(0);
+    }
+  });
+});
+
+describe("discovery metadata (x402scan / AgentCash)", () => {
+  it("openapi declares structured x-payment-info on every paid operation, x-discovery.llmsTxtUrl, guidance and public free routes", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const oa = await (await app.request("/openapi.json")).json();
+    const paid = {
+      "/cn/workday": ["get", "0.003"],
+      "/cn/business-days": ["get", "0.005"],
+      "/deps/advisories": ["get", "0.005"],
+      "/deps/advisories/batch": ["post", "0.02"],
+    } as const;
+    for (const [path, [method, amount]] of Object.entries(paid)) {
+      const op = oa.paths[path][method];
+      expect(op["x-payment-info"]).toEqual({ price: { mode: "fixed", currency: "USD", amount }, protocols: [{ x402: {} }] });
+      expect(op.responses["402"]).toBeTruthy();
+    }
+    expect(oa.paths["/health"].get["x-payment-info"]).toBeUndefined();
+    expect(oa["x-discovery"]).toEqual({ llmsTxtUrl: "http://localhost/llms.txt" });
+    expect(oa.paths["/health"].get.security).toEqual([]);
+    expect(oa.info["x-guidance"]).toContain("402");
+    expect(oa.info.contact.url).toContain("github.com");
+    expect(oa.info.description.length).toBeLessThan(300);
+    expect(oa.info.description).not.toContain("CC-BY");
+    expect(JSON.stringify(oa.tags)).toContain("CC-BY 4.0"); // attribution moved out of info.description
+    expect(await (await app.request("/.well-known/openapi.json")).json()).toEqual(oa);
+  });
+
+  it("serves an image favicon and sets iconUrl when the public base URL is known", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const ico = await app.request("/favicon.ico");
+    expect(ico.status).toBe(200);
+    expect(ico.headers.get("content-type")).toBe("image/x-icon");
+    expect(new Uint8Array(await ico.arrayBuffer()).slice(0, 4)).toEqual(Uint8Array.from([0, 0, 1, 0]));
+    const withBase = createApp({
+      network: NETWORK,
+      payTo: PAY_TO,
+      facilitatorKind: "x402org",
+      facilitatorUrl: "http://unused",
+      facilitator: new FakeFacilitator({ verify: true, settle: true }),
+      publicBaseUrl: "https://api.example",
+      funnel: new FunnelLogger(() => {}),
+    });
+    const res = await withBase.request("/cn/workday");
+    expect(decodePaymentRequiredHeader(res.headers.get("payment-required")!).resource.iconUrl).toBe("https://api.example/favicon.ico");
+    expect((await res.json()).docs).toBe("https://api.example/openapi.json");
+  });
+
+  it("advisory descriptions lead with the install-safety intent and the batch per-package price matches BATCH_PRICE / MAX_BATCH", () => {
+    expect(ADVISORIES_DESCRIPTION.startsWith("Is this package version safe to install?")).toBe(true);
+    expect(BATCH_DESCRIPTION).toContain(`${BATCH_PRICE} per call`);
+    expect(BATCH_DESCRIPTION).toContain(`${perPackagePrice(BATCH_PRICE)} per package`);
+    expect(perPackagePrice(BATCH_PRICE)).toBe("$0.0004");
+  });
+
+  it("llms.txt has one section per service and states the payment terms once", async () => {
+    const { app } = setup({ verify: true, settle: true });
+    const llms = await (await app.request("/llms.txt")).text();
+    const h2 = llms.split("\n").filter((l) => l.startsWith("## "));
+    expect(h2).toEqual(["## China Workday Calendar", "## Package Vulnerability Advisories", "## Free"]);
+    expect(llms.match(/scheme "exact"/g)).toHaveLength(1);
+    expect(llms).toContain("$0.0004 per package");
   });
 });
 

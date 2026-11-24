@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
-import { Aws, CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
-import { EndpointType, LambdaRestApi } from "aws-cdk-lib/aws-apigateway";
+import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
+import { HttpApi, HttpStage } from "aws-cdk-lib/aws-apigatewayv2";
+import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { CfnBudget } from "aws-cdk-lib/aws-budgets";
 import { Architecture, LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
@@ -24,7 +25,7 @@ export interface ApiStackProps extends StackProps {
   budgetUsd: number;
 }
 
-/** One Lambda (Node 22, arm64) behind an API Gateway REST API (Lambda proxy integration, stage `prod`). */
+/** One Lambda (Node 22, arm64) behind an API Gateway HTTP API (Lambda proxy integration, `$default` stage). */
 export class ApiStack extends Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -38,7 +39,7 @@ export class ApiStack extends Stack {
       architecture: Architecture.ARM_64,
       memorySize: 256,
       reservedConcurrentExecutions: props.reservedConcurrency,
-      // Settlement waits for the facilitator to land the tx. Kept under API Gateway's 29 s integration timeout, so a
+      // Settlement waits for the facilitator to land the tx. Kept under the HTTP API's 29 s integration timeout, so a
       // request that settles is never answered 504 by the gateway after the buyer was charged.
       timeout: Duration.seconds(25),
       logGroup,
@@ -78,23 +79,24 @@ export class ApiStack extends Stack {
       });
     }
 
-    // No Lambda Function URL: the only public entry is this REST API, whose stage throttling caps the request rate.
-    // The integration grants lambda:InvokeFunction to apigateway.amazonaws.com with a SourceArn on this API's
-    // `prod` stage only (allowTestInvoke: false drops the console test-invoke grant).
-    const stageName = "prod";
-    const api = new LambdaRestApi(this, "Api", {
-      handler: fn,
-      proxy: true, // ANY on / and /{proxy+}: GET, HEAD and query strings reach the app unchanged
-      integrationOptions: { allowTestInvoke: false },
-      endpointConfiguration: { types: [EndpointType.REGIONAL] },
-      cloudWatchRole: false, // no account-wide API Gateway logging role
-      deployOptions: { stageName, throttlingRateLimit: 10, throttlingBurstLimit: 20 },
+    // No Lambda Function URL: the only public entry is this HTTP API. Its `$default` stage has no path prefix, so
+    // /openapi.json, /.well-known/openapi.json and /llms.txt sit at the origin root where discovery tools look.
+    // The `$default` route sends every method and path (including /) to the function, payload format 2.0.
+    // HttpLambdaIntegration grants lambda:InvokeFunction to apigateway.amazonaws.com with a SourceArn on this API only.
+    // Its integration timeout (29 s) stays above the function's 25 s.
+    const api = new HttpApi(this, "HttpApi", {
+      defaultIntegration: new HttpLambdaIntegration("Lambda", fn),
+      createDefaultStage: false, // created below with throttling, which HttpApi's own default stage cannot set
+    });
+    new HttpStage(this, "DefaultStage", {
+      httpApi: api,
+      stageName: "$default",
+      autoDeploy: true,
+      throttle: { rateLimit: 10, burstLimit: 20 },
     });
 
-    // The app needs its public base URL (with the stage) for /openapi.json and /llms.txt. Built from the RestApi
-    // id rather than api.url, because api.url references the stage, which depends on the function (a cycle).
-    const apiUrl = `https://${api.restApiId}.execute-api.${this.region}.${Aws.URL_SUFFIX}/${stageName}`;
-    if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", apiUrl);
-    new CfnOutput(this, "ApiUrl", { value: `${apiUrl}/` });
+    // The app uses its public base URL in /openapi.json, /llms.txt, the 402 body and iconUrl.
+    if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", api.apiEndpoint);
+    new CfnOutput(this, "ApiUrl", { value: `${api.apiEndpoint}/` });
   }
 }

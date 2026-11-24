@@ -8,10 +8,13 @@ export const DEPS_SERVICE_NAME = "Package Vulnerability Advisories";
 export const DEPS_TAGS = ["security", "dependencies", "cve", "npm", "pypi"];
 
 export const ADVISORIES_DESCRIPTION =
-  "Known security advisories (CVE, GHSA, PYSEC, GO, RUSTSEC) affecting one exact package version in npm, PyPI, Go, crates.io or Maven. " +
-  "Returns vulnerable true/false, CVSS, affected ranges, fixed versions and links. Package names are case-sensitive (npm: use the published lowercase name). Data from OSV.dev, fetched live (cached up to 1 hour).";
+  "Is this package version safe to install? Call before adding or upgrading an npm, PyPI, Go, crates.io or Maven dependency. " +
+  "Returns vulnerable true/false and the known advisories (CVE, GHSA, PYSEC, GO, RUSTSEC) for that exact version: CVSS, affected ranges, fixed versions and links. " +
+  "Package names are case-sensitive (npm: use the published lowercase name). Data from OSV.dev, fetched live (cached up to 1 hour).";
+// shortcut: the per-package price is written out for search snippets; test/app.test.ts checks it against BATCH_PRICE / MAX_BATCH.
 export const BATCH_DESCRIPTION =
-  `Same as GET /deps/advisories for up to ${MAX_BATCH} package versions in one call. Results are in request order.`;
+  `Are these package versions safe to install? Checks up to ${MAX_BATCH} npm, PyPI, Go, crates.io or Maven package versions in one call, ` +
+  `e.g. a whole lockfile: $0.02 per call, $0.0004 per package. Same fields as GET /deps/advisories for each package, in request order.`;
 
 const PACKAGE_PROPS = {
   ecosystem: { type: "string", enum: [...ECOSYSTEMS], description: "Package ecosystem (case-insensitive on input)" },

@@ -20,28 +20,36 @@ describe("ApiStack", () => {
     template.resourceCountIs("AWS::Lambda::Url", 0);
   });
 
-  it("fronts the function with a throttled REST API stage", () => {
-    template.resourceCountIs("AWS::ApiGateway::RestApi", 1);
-    template.hasResourceProperties("AWS::ApiGateway::Stage", {
-      StageName: "prod",
-      MethodSettings: [Match.objectLike({ HttpMethod: "*", ResourcePath: "/*", ThrottlingRateLimit: 10, ThrottlingBurstLimit: 20 })],
+  it("fronts the function with a throttled HTTP API $default stage and no REST API", () => {
+    template.resourceCountIs("AWS::ApiGatewayV2::Api", 1);
+    template.hasResourceProperties("AWS::ApiGatewayV2::Api", { ProtocolType: "HTTP" });
+    template.resourceCountIs("AWS::ApiGateway::RestApi", 0);
+    template.resourceCountIs("AWS::ApiGatewayV2::Stage", 1);
+    template.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+      StageName: "$default",
+      AutoDeploy: true,
+      DefaultRouteSettings: { ThrottlingRateLimit: 10, ThrottlingBurstLimit: 20 },
     });
+    template.hasResourceProperties("AWS::ApiGatewayV2::Route", { RouteKey: "$default" });
     template.hasResourceProperties("AWS::Lambda::Function", { ReservedConcurrentExecutions: 10, Timeout: 25 });
     template.resourceCountIs("AWS::ApiGateway::Account", 0);
   });
 
-  it("lets only API Gateway invoke the function, scoped to this API's prod stage", () => {
-    const [apiId] = Object.keys(template.findResources("AWS::ApiGateway::RestApi"));
-    const [stageId] = Object.keys(template.findResources("AWS::ApiGateway::Stage"));
+  it("lets only API Gateway invoke the function, scoped to this HTTP API", () => {
+    const [apiId] = Object.keys(template.findResources("AWS::ApiGatewayV2::Api"));
     const perms = Object.values(template.findResources("AWS::Lambda::Permission"));
     expect(perms.length).toBeGreaterThan(0);
     for (const p of perms) {
       expect(p.Properties.Principal).toBe("apigateway.amazonaws.com");
       expect(p.Properties.Action).toBe("lambda:InvokeFunction");
-      const arn = JSON.stringify(p.Properties.SourceArn);
-      expect(arn).toContain(`{"Ref":"${apiId}"}`);
-      expect(arn).toContain(`{"Ref":"${stageId}"}`);
-      expect(arn).not.toContain("test-invoke-stage");
+      expect(JSON.stringify(p.Properties.SourceArn)).toContain(`{"Ref":"${apiId}"}`);
     }
+  });
+
+  it("points PUBLIC_BASE_URL at the HTTP API endpoint, with no stage path", () => {
+    const [apiId] = Object.keys(template.findResources("AWS::ApiGatewayV2::Api"));
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ PUBLIC_BASE_URL: { "Fn::GetAtt": [apiId, "ApiEndpoint"] } }) },
+    });
   });
 });

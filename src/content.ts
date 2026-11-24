@@ -107,14 +107,24 @@ export interface PriceInfo {
   batchPrice: string;
 }
 
+/** Structured x-payment-info (x402scan / AgentCash discovery spec v1). */
+const paymentInfo = (price: string) => ({
+  price: { mode: "fixed", currency: "USD", amount: price.replace(/^\$/, "") },
+  protocols: [{ x402: {} }],
+});
+
+/** Per-package price of a full batch, e.g. "$0.0004" for $0.02 / 50. */
+export const perPackagePrice = (batchPrice: string) => `$${Number((Number(batchPrice.replace(/^\$/, "")) / MAX_BATCH).toPrecision(6))}`;
+
 export function openApi(baseUrl: string, p: PriceInfo) {
   const b64 = { type: "string", description: "Base64-encoded JSON (x402 v2)" };
   const paid = (price: string) => ({
-    description: `Payment required (x402 v2). Price ${price} USDC on ${p.network}. Decode the PAYMENT-REQUIRED header, sign one of its accepts, and retry with a PAYMENT-SIGNATURE header. Also returned when a payment is rejected or settlement fails; no content is sent in that case.`,
+    description: `Payment required (x402 v2). Price ${price} USDC on ${p.network}. Decode the PAYMENT-REQUIRED header, sign one of its accepts, and retry with a PAYMENT-SIGNATURE header. Returned for a request with no parameters at all, so a probe sees the price. Also returned when a payment is rejected or settlement fails; no content is sent in that case.`,
     headers: {
       "PAYMENT-REQUIRED": { ...b64, description: "Base64 JSON PaymentRequired: x402Version, accepts[] (scheme, network, asset, amount, payTo), resource, extensions, error" },
       "PAYMENT-RESPONSE": { ...b64, description: "Base64 JSON settlement result; present when settlement was attempted and failed" },
     },
+    content: { "application/json": { schema: { type: "object", description: "price, network, how_to_pay, docs and an example request/response" } } },
   });
   const ok = (description: string, schema: unknown, example: unknown) => ({
     description,
@@ -125,18 +135,33 @@ export function openApi(baseUrl: string, p: PriceInfo) {
   const upstream = { description: "Facilitator unavailable or returned an error. Not charged; retry later." };
   const osvDown = { description: "OSV.dev unavailable, timed out (5 s) or returned an error, or the facilitator failed. Not charged; retry later." };
   const depsErr = { description: "Invalid ecosystem, name, version or batch body. Not charged." };
+  // security: [] marks a route as public; paid routes are marked by x-payment-info.
+  const free = (summary: string) => ({ get: { summary, security: [], responses: { "200": { description: "ok" } } } });
   return {
     openapi: "3.1.0",
     info: {
       title: SITE_NAME,
-      version: "1.1.0",
-      description: `Pay-per-call x402 APIs. ${SERVICE_NAME}: mainland China workdays, data ${calendar.firstDate}..${calendar.lastDate}, updated ${calendar.dataUpdated}. ${DEPS_SERVICE_NAME}: ${OSV_ATTRIBUTION}`,
+      version: "1.2.0",
+      description:
+        `Pay-per-call x402 APIs (USDC). ${SERVICE_NAME}: is a date a working day in mainland China, with official holidays and makeup workdays (调休). ` +
+        `${DEPS_SERVICE_NAME}: is this npm, PyPI, Go, crates.io or Maven package version safe to install; batch ${perPackagePrice(p.batchPrice)} per package.`,
+      contact: { name: "Source and issues", url: REPO_URL },
+      "x-guidance":
+        "Call a paid route without payment to get a 402 with the price; pay with x402 v2 (exact, USDC) and retry with PAYMENT-SIGNATURE. " +
+        "Invalid input gets a free 400/404 first; 502 means upstream failed and nothing was charged. Batch package checks are cheaper per package.",
     },
+    "x-discovery": { llmsTxtUrl: `${baseUrl}/llms.txt` },
     servers: [{ url: baseUrl }],
+    tags: [
+      { name: SERVICE_NAME, description: `Data ${calendar.firstDate}..${calendar.lastDate} from State Council (国务院) holiday notices on gov.cn, updated ${calendar.dataUpdated}.` },
+      { name: DEPS_SERVICE_NAME, description: OSV_ATTRIBUTION },
+    ],
     paths: {
       "/cn/workday": {
         get: {
           summary: WORKDAY_DESCRIPTION,
+          tags: [SERVICE_NAME],
+          "x-payment-info": paymentInfo(p.workdayPrice),
           "x-x402-price": p.workdayPrice,
           parameters: [{ name: "date", in: "query", required: true, schema: WORKDAY_INPUT_SCHEMA.properties.date }],
           responses: {
@@ -151,6 +176,8 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       "/cn/business-days": {
         get: {
           summary: BUSINESS_DAYS_DESCRIPTION,
+          tags: [SERVICE_NAME],
+          "x-payment-info": paymentInfo(p.businessDaysPrice),
           "x-x402-price": p.businessDaysPrice,
           parameters: [
             { name: "from", in: "query", required: true, schema: BUSINESS_DAYS_INPUT_SCHEMA.properties.from },
@@ -168,6 +195,8 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       "/deps/advisories": {
         get: {
           summary: ADVISORIES_DESCRIPTION,
+          tags: [DEPS_SERVICE_NAME],
+          "x-payment-info": paymentInfo(p.advisoriesPrice),
           "x-x402-price": p.advisoriesPrice,
           parameters: (["ecosystem", "name", "version"] as const).map((n) => ({
             name: n,
@@ -186,6 +215,8 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       "/deps/advisories/batch": {
         post: {
           summary: BATCH_DESCRIPTION,
+          tags: [DEPS_SERVICE_NAME],
+          "x-payment-info": paymentInfo(p.batchPrice),
           "x-x402-price": p.batchPrice,
           requestBody: { required: true, content: { "application/json": { schema: BATCH_INPUT_SCHEMA, example: BATCH_EXAMPLE_INPUT } } },
           responses: {
@@ -196,7 +227,8 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           },
         },
       },
-      "/health": { get: { summary: "Liveness check (free)", responses: { "200": { description: "ok" } } } },
+      "/health": free("Liveness check (free)"),
+      "/llms.txt": free("Agent-oriented summary of these APIs (free)"),
     },
   };
 }
@@ -204,25 +236,27 @@ export function openApi(baseUrl: string, p: PriceInfo) {
 export function llmsTxt(baseUrl: string, p: PriceInfo): string {
   return `# ${SITE_NAME}
 
-Pay-per-call x402 APIs. Payment: USDC via x402 v2, scheme "exact", network ${p.network}. Invalid input is rejected with 400/404 before any payment is requested; upstream or facilitator failures return 502 and are not charged.
+> Pay-per-call APIs for agents, paid with USDC via x402 v2 (scheme "exact", network ${p.network}). A request with no parameters returns 402 with the price and an example. Invalid input is rejected with a free 400/404 before any payment is requested; upstream or facilitator failures return 502 and are not charged.
 
 ## ${SERVICE_NAME}
 
-> Answers whether a date is a working day in mainland China, including official holidays and weekend makeup workdays (调休补班) from State Council (国务院) notices. Payment: USDC via x402 v2, scheme "exact", network ${p.network}.
-
-Coverage: ${calendar.firstDate} to ${calendar.lastDate}. Data updated: ${calendar.dataUpdated}. Invalid input returns 400/404 before any payment is requested.
-
-## Paid endpoints
+Whether a date is a working day in mainland China, including official holidays and weekend makeup workdays (调休补班) from State Council (国务院) notices. Coverage ${calendar.firstDate} to ${calendar.lastDate}, data updated ${calendar.dataUpdated}.
 
 - [GET ${baseUrl}/cn/workday?date=YYYY-MM-DD](${baseUrl}/cn/workday?date=2026-02-14): ${p.workdayPrice}. ${WORKDAY_DESCRIPTION}
 - [GET ${baseUrl}/cn/business-days?from=YYYY-MM-DD&to=YYYY-MM-DD](${baseUrl}/cn/business-days?from=2026-09-28&to=2026-10-11): ${p.businessDaysPrice}. ${BUSINESS_DAYS_DESCRIPTION}
 
+Example: GET /cn/workday?date=2026-02-14 returns
+${JSON.stringify(WORKDAY_EXAMPLE_OUTPUT)}
+
 ## ${DEPS_SERVICE_NAME}
 
-> Known vulnerabilities for an exact package version. Ecosystems: ${ECOSYSTEMS.join(", ")}.
+Is this package version safe to install? Known vulnerabilities for an exact version. Ecosystems: ${ECOSYSTEMS.join(", ")}.
 
 - [GET ${baseUrl}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20](${baseUrl}/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20): ${p.advisoriesPrice}. ${ADVISORIES_DESCRIPTION}
 - POST ${baseUrl}/deps/advisories/batch with JSON {"packages":[{"ecosystem","name","version"}, ...]} (max ${MAX_BATCH}): ${p.batchPrice}. ${BATCH_DESCRIPTION}
+
+Example: GET /deps/advisories?${new URLSearchParams(ADVISORIES_EXAMPLE_INPUT)} returns (trimmed to one advisory)
+${JSON.stringify(ADVISORIES_EXAMPLE_OUTPUT)}
 
 ${OSV_ATTRIBUTION}
 
@@ -231,14 +265,6 @@ ${OSV_ATTRIBUTION}
 - [OpenAPI](${baseUrl}/openapi.json): full input/output JSON schema and examples
 - [Preview page](${baseUrl}/)
 - [Source code and data](${REPO_URL})
-
-## Examples
-
-GET /cn/workday?date=2026-02-14 returns:
-${JSON.stringify(WORKDAY_EXAMPLE_OUTPUT)}
-
-GET /deps/advisories?${new URLSearchParams(ADVISORIES_EXAMPLE_INPUT)} returns (trimmed to one advisory):
-${JSON.stringify(ADVISORIES_EXAMPLE_OUTPUT)}
 `;
 }
 
@@ -251,6 +277,7 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${SITE_NAME}</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
 <style>body{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#222}code,pre{background:#f4f4f4;border-radius:4px}pre{padding:.8rem;overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem;text-align:left}</style>
 </head><body>
 <h1>${SITE_NAME}</h1>
@@ -282,3 +309,11 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <p><a href="${REPO_URL}">Source code and data</a></p>
 </body></html>`;
 }
+
+/** 32x32 icon (ICO wrapping a PNG): white frame and dot on blue. Served at /favicon.ico and used as the x402 iconUrl. */
+export const FAVICON_ICO = Uint8Array.from(
+  atob(
+    "AAABAAEAICAAAAEAIACFAAAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAAAExJREFUeNpj+D/AgGHQOEA+/zVd8agDRh0w6oCh7wB0QDcHEAI0dQCxYHg6gFQw6oDh54DRXDAoCqJBURSP1oajDhh1wPB1wIjtHQMA+bT2JiCso/cAAAAASUVORK5CYII=",
+  ),
+  (ch) => ch.charCodeAt(0),
+);
