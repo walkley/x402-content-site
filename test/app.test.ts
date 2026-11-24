@@ -3,7 +3,7 @@ import type { FacilitatorClient } from "@x402/core/server";
 import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePaymentSignatureHeader } from "@x402/core/http";
 import { BATCH_PRICE, SETTLE_RESERVE_MS, configFromEnv, createApp } from "../src/app.js";
-import { ADVISORIES_DESCRIPTION, BATCH_DESCRIPTION } from "../src/content-deps.js";
+import { ADVISORIES_DESCRIPTION, BATCH_DESCRIPTION, DEPS_TAGS } from "../src/content-deps.js";
 import { SKILL_DESCRIPTION, perPackagePrice } from "../src/content.js";
 import { FunnelLogger } from "../src/funnel.js";
 import { OsvClient } from "../src/advisories.js";
@@ -372,6 +372,13 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
     expect(perPackagePrice(BATCH_PRICE)).toBe("$0.0004");
   });
 
+  it("advisory tags fit the x402 limits and the descriptions have no bare colon", () => {
+    expect(DEPS_TAGS.length).toBeLessThanOrEqual(5);
+    for (const t of DEPS_TAGS) expect(t).toMatch(/^[\x20-\x7e]{1,32}$/);
+    // A bare ": " breaks unquoted YAML when a client copies a description into skill frontmatter (PR #8 review).
+    for (const d of [ADVISORIES_DESCRIPTION, BATCH_DESCRIPTION]) expect(d).not.toMatch(/: | #/);
+  });
+
   it("llms.txt has one section per service and states the payment terms once", async () => {
     const { app } = setup({ verify: true, settle: true });
     const llms = await (await app.request("/llms.txt")).text();
@@ -634,7 +641,7 @@ describe("package advisories endpoints", () => {
     const required = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
     expect(required.accepts[0]).toMatchObject({ scheme: "exact", network: NETWORK, payTo: PAY_TO, amount, asset: USDC_BASE_SEPOLIA });
     expect(required.resource).toMatchObject({ serviceName: "Package Vulnerability Advisories" });
-    expect(required.resource.tags).toEqual(["security", "dependencies", "cve", "npm", "pypi"]);
+    expect(required.resource.tags).toEqual(["install safety", "dependency check", "package vulnerability", "cve", "osv"]);
     const bazaar = required.extensions?.bazaar as { info: { input: { method: string }; output: { example: unknown } } };
     expect(bazaar.info.input.method).toBe(method);
     expect(bazaar.info.output.example).toBeTruthy();
