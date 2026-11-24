@@ -12,7 +12,8 @@ export type FunnelStage =
   | "verify_fail"
   | "settle_ok"
   | "settle_fail"
-  | "content_returned";
+  | "content_returned"
+  | "handler_error";
 
 export interface FunnelEvent {
   stage: FunnelStage;
