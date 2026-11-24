@@ -15,12 +15,12 @@ const facilitator = {
 } as unknown as FacilitatorClient;
 
 /** Minimal API Gateway HTTP API (payload format 2.0) event as the `$default` stage sends it. */
-function httpEvent(method: string, path: string, query: Record<string, string> | null, headers: Record<string, string> = {}) {
+function httpEvent(method: string, path: string, query: Record<string, string> | null, headers: Record<string, string> = {}, routeKey = "$default") {
   const all = { host: HOST, "user-agent": "vitest", ...Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])) };
   const rawQueryString = query ? new URLSearchParams(query).toString() : "";
   return {
     version: "2.0",
-    routeKey: "$default",
+    routeKey,
     rawPath: path,
     rawQueryString,
     headers: all,
@@ -32,7 +32,7 @@ function httpEvent(method: string, path: string, query: Record<string, string> |
       domainName: HOST,
       http: { method, path, protocol: "HTTP/1.1", sourceIp: "203.0.113.1", userAgent: "vitest" },
       requestId: "r1",
-      routeKey: "$default",
+      routeKey,
       timeEpoch: 0,
     },
   };
@@ -89,9 +89,20 @@ describe("HTTP API ($default stage) adapter", () => {
   });
 
   it("refuses HEAD and a percent-encoded /sec path from an API Gateway event before payment", async () => {
-    expect((await call(httpEvent("HEAD", "/sec/insider-trades", { ticker: "AAPL" }))).statusCode).toBe(405);
-    expect((await call(httpEvent("GET", "/sec/insider%2Dtrades", { ticker: "AAPL" }))).statusCode).toBe(404);
-    expect((await call(httpEvent("GET", "/sec/insider-trades", { ticker: "AAPL" }))).statusCode).toBe(402);
+    const FALLBACK = "ANY /sec/{proxy+}";
+    expect((await call(httpEvent("HEAD", "/sec/insider-trades", { ticker: "AAPL" }, {}, FALLBACK))).statusCode).toBe(405);
+    expect((await call(httpEvent("GET", "/sec/insider%2Dtrades", { ticker: "AAPL" }, {}, "GET /sec/insider-trades"))).statusCode).toBe(404);
+    expect((await call(httpEvent("GET", "/sec/insider-trades/", { ticker: "AAPL" }, {}, FALLBACK))).statusCode).toBe(404);
+    expect((await call(httpEvent("GET", "/sec/insider-trades", { ticker: "AAPL" }, {}, "GET /sec/insider-trades"))).statusCode).toBe(402);
+    expect((await call(httpEvent("GET", "/sec/latest-filings", { ticker: "AAPL" }, {}, "GET /sec/latest-filings"))).statusCode).toBe(402);
+  });
+
+  it("serves /sec only on that path's own GET route, so the fallback route never calls SEC", async () => {
+    for (const routeKey of ["ANY /sec/{proxy+}", "$default", "GET /sec/latest-filings"]) {
+      const r = await call(httpEvent("GET", "/sec/insider-trades", { ticker: "AAPL" }, {}, routeKey));
+      expect(r.statusCode).toBe(404);
+      expect(header(r, "payment-required")).toBeUndefined();
+    }
   });
 
   it("validates input before payment (free 400)", async () => {
