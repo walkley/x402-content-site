@@ -147,6 +147,18 @@ describe("paid flow", () => {
     expect(lines.join("\n")).not.toContain("abababab");
   });
 
+  it("src=mcp (the MCP over-quota hint's URL) pays and answers exactly like the plain URL", async () => {
+    const plain = setup({ verify: true, settle: true });
+    const tagged = setup({ verify: true, settle: true });
+    const a = await paidRequest(plain.app, "/cn/workday?date=2026-02-14");
+    const b = await paidRequest(tagged.app, "/cn/workday?date=2026-02-14&src=mcp");
+    expect(b.status).toBe(200);
+    expect(await b.json()).toEqual(await a.json());
+    expect(tagged.facilitator.settleCalls).toBe(1);
+    expect(tagged.events().map((e) => e.stage)).toEqual(plain.events().map((e) => e.stage));
+    expect(tagged.events().filter((e) => e.stage === "request").map((e) => e.src)).toEqual(["mcp", "mcp"]);
+  });
+
   it("settle failure returns no paid content", async () => {
     const { app, events, facilitator } = setup({ verify: true, settle: false });
     const res = await paidRequest(app, "/cn/business-days?from=2026-09-28&to=2026-10-11");

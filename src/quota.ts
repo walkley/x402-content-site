@@ -10,25 +10,40 @@ const DAY_MS = 86_400_000;
 
 export type QuotaResult = "ok" | "ip_limit" | "global_limit";
 
+export interface QuotaUse {
+  result: QuotaResult;
+  /** This IP's counter after this call: the how-many-th free call of the day. Unset on ip_limit (nothing counted). */
+  ipCalls?: number;
+}
+
 export interface FreeQuota {
   readonly perIpDaily: number;
   readonly globalDaily: number;
   /** Loads what consume needs (the HMAC key) during Lambda init. Never throws; consume retries a failed load. */
   init?(): Promise<void>;
   /** Counts one free call for this IP and for everyone, or says which limit is reached. Throws when the store fails. */
-  consume(ip: string): Promise<QuotaResult>;
+  consume(ip: string): Promise<QuotaUse>;
+  /**
+   * The same keyed hash the per-IP counter uses (today's UTC day and the IP), for log lines that link one caller's
+   * requests. Undefined while the HMAC key is not loaded; never throws and never reads the key itself.
+   */
+  ipHash?(ip: string): string | undefined;
 }
 
 export const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** Without the key, the 2^32 IPv4 addresses cannot be tried against a stored hash. */
-export const ipKey = (ip: string, day: string, hmacKey: string) =>
-  `ip#${day}#${createHmac("sha256", hmacKey).update(`${day}|${ip}`).digest("hex").slice(0, 32)}`;
+export const ipHash = (ip: string, day: string, hmacKey: string) =>
+  createHmac("sha256", hmacKey).update(`${day}|${ip}`).digest("hex").slice(0, 32);
+export const ipKey = (ip: string, day: string, hmacKey: string) => `ip#${day}#${ipHash(ip, day, hmacKey)}`;
 export const globalKey = (day: string) => `global#${day}`;
 
 type Sender = { send(cmd: UpdateItemCommand): Promise<unknown> };
 
 export class DynamoQuota implements FreeQuota {
+  /** Set once the key has been read, so ipHash can run without waiting or retrying the read. */
+  private loadedKey?: string;
+
   constructor(
     private readonly db: Sender,
     private readonly table: string,
@@ -39,43 +54,54 @@ export class DynamoQuota implements FreeQuota {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Adds 1 unless the counter has reached limit. false when it has. */
-  private async increment(key: string, limit: number, expiresAt: number): Promise<boolean> {
+  /** Adds 1 unless the counter has reached limit: the new count, or false when it has. */
+  private async increment(key: string, limit: number, expiresAt: number): Promise<number | false> {
     try {
-      await this.db.send(
+      const out = await this.db.send(
         new UpdateItemCommand({
           TableName: this.table,
           Key: { pk: { S: key } },
           UpdateExpression: "SET expires_at = :exp ADD n :one",
           ConditionExpression: "attribute_not_exists(n) OR n < :limit",
           ExpressionAttributeValues: { ":one": { N: "1" }, ":exp": { N: String(expiresAt) }, ":limit": { N: String(limit) } },
+          ReturnValues: "UPDATED_NEW",
         }),
       );
-      return true;
+      return Number((out as { Attributes?: { n?: { N?: string } } } | undefined)?.Attributes?.n?.N ?? Number.NaN);
     } catch (e) {
       if (e instanceof ConditionalCheckFailedException || (e as Error).name === "ConditionalCheckFailedException") return false;
       throw e;
     }
   }
 
+  private async key(): Promise<string> {
+    return (this.loadedKey = await this.hmacKey());
+  }
+
+  ipHash(ip: string): string | undefined {
+    return this.loadedKey === undefined ? undefined : ipHash(ip, utcDay(this.now()), this.loadedKey);
+  }
+
   async init(): Promise<void> {
     try {
-      await this.hmacKey();
+      await this.key();
     } catch (e) {
       console.warn(JSON.stringify({ ts: new Date().toISOString(), type: "quota_key_load_failed", message: (e as Error).message }));
     }
   }
 
-  async consume(ip: string): Promise<QuotaResult> {
-    const key = await this.hmacKey();
+  async consume(ip: string): Promise<QuotaUse> {
+    const key = await this.key();
     const now = this.now();
     const day = utcDay(now);
     const expiresAt = (Math.floor(now / DAY_MS) + 2) * 86_400; // TTL in epoch seconds: end of the next UTC day
     // Per-IP first, so one address cannot use up the global cap. An IP call that then hits the global cap still
     // counts against that IP; it gets the paid hint either way.
-    if (!(await this.increment(ipKey(ip, day, key), this.perIpDaily, expiresAt))) return "ip_limit";
-    if (!(await this.increment(globalKey(day), this.globalDaily, expiresAt))) return "global_limit";
-    return "ok";
+    const ipCalls = await this.increment(ipKey(ip, day, key), this.perIpDaily, expiresAt);
+    if (ipCalls === false) return { result: "ip_limit" };
+    const counted = Number.isFinite(ipCalls) ? { ipCalls } : {};
+    if ((await this.increment(globalKey(day), this.globalDaily, expiresAt)) === false) return { result: "global_limit", ...counted };
+    return { result: "ok", ...counted };
   }
 }
 

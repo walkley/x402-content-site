@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
+import { Annotations, CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
 import { AccessLogFormat } from "aws-cdk-lib/aws-apigateway";
-import { HttpApi, HttpStage, LogGroupLogDestination } from "aws-cdk-lib/aws-apigatewayv2";
+import { CfnIntegration, CfnRoute, CfnStage, HttpApi, HttpStage, LogGroupLogDestination } from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { CfnBudget } from "aws-cdk-lib/aws-budgets";
 import { Alarm, ComparisonOperator, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
@@ -44,6 +44,12 @@ export interface ApiStackProps extends StackProps {
 }
 
 export const MAINNET_NETWORK = "eip155:8453";
+
+/** Stage default route throttle: every route without its own settings, which includes all paid routes. */
+export const DEFAULT_THROTTLE = { rateLimit: 10, burstLimit: 20 };
+/** The free MCP endpoint's own route and throttle, so /mcp traffic does not use the paid routes' 10 rps. */
+export const MCP_ROUTE_KEY = "POST /mcp";
+export const MCP_THROTTLE = { rateLimit: 2, burstLimit: 5 };
 
 /** HTTP API access log line ($context variables; the query string is not logged). */
 export const ACCESS_LOG_FIELDS = {
@@ -172,11 +178,17 @@ export class ApiStack extends Stack {
       defaultIntegration: new HttpLambdaIntegration("Lambda", fn),
       createDefaultStage: false, // created below with throttling, which HttpApi's own default stage cannot set
     });
-    new HttpStage(this, "DefaultStage", {
+    // POST /mcp gets its own route, pointed at the same integration, so that it can have its own throttle. An L1 route:
+    // binding the L2 integration to a second route would add a second invoke permission, and the existing one already
+    // covers every route of this API (SourceArn api-id/*/*). OPTIONS/GET/DELETE /mcp stay on $default.
+    const integration = api.node.findAll().find((c): c is CfnIntegration => c instanceof CfnIntegration);
+    if (!integration) throw new Error("HttpApi default integration not found");
+    const mcpRoute = new CfnRoute(this, "McpRoute", { apiId: api.apiId, routeKey: MCP_ROUTE_KEY, target: `integrations/${integration.ref}` });
+    const stage = new HttpStage(this, "DefaultStage", {
       httpApi: api,
       stageName: "$default",
       autoDeploy: true,
-      throttle: { rateLimit: 10, burstLimit: 20 },
+      throttle: DEFAULT_THROTTLE,
       // One JSON line per request, so 4xx/5xx can be listed by status without matching Lambda logs (R10).
       // HTTP APIs write access logs through their service-linked role; no API Gateway account role is needed.
       accessLogSettings: {
@@ -184,6 +196,11 @@ export class ApiStack extends Stack {
         format: AccessLogFormat.custom(JSON.stringify(ACCESS_LOG_FIELDS)),
       },
     });
+    // Route-level settings replace the default throttle for that route only (HttpStage has no L2 prop for them).
+    (stage.node.defaultChild as CfnStage).routeSettings = {
+      [MCP_ROUTE_KEY]: { ThrottlingRateLimit: MCP_THROTTLE.rateLimit, ThrottlingBurstLimit: MCP_THROTTLE.burstLimit },
+    };
+    stage.node.addDependency(mcpRoute); // the stage's route settings name the route, so it must exist first
 
     // The app uses its public base URL in /openapi.json, /llms.txt, the 402 body and iconUrl.
     if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", api.apiEndpoint);
@@ -220,6 +237,13 @@ export class ApiStack extends Stack {
       treatMissingData: TreatMissingData.NOT_BREACHING,
     });
     alarm.addAlarmAction(new SnsAction(topic));
+    // The alarm still counts /mcp (README "Cost breaker"): what keeps a /mcp flood alone from tripping it is that the
+    // /mcp route's throttle cannot reach the threshold in 24 hours.
+    if (MCP_THROTTLE.rateLimit * 86_400 >= props.breakerDailyInvocations) {
+      Annotations.of(this).addWarning(
+        `breakerDailyInvocations ${props.breakerDailyInvocations} is reachable by /mcp alone (${MCP_THROTTLE.rateLimit} rps x 24 h): a /mcp flood can trip the breaker and stop the paid routes`,
+      );
+    }
     // Replaces SNS's default topic policy (AWS:* limited to this account): only CloudWatch, only for this alarm.
     topic.addToResourcePolicy(
       new PolicyStatement({
