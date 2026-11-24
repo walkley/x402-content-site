@@ -27,6 +27,8 @@ import {
 } from "./content-deps.js";
 import { calendar } from "./data.js";
 import { FunnelLogger } from "./funnel.js";
+import { mcpHandler, mcpManifest } from "./mcp.js";
+import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
 import {
   CDP_FACILITATOR_URL,
   FACILITATOR_URLS,
@@ -81,6 +83,8 @@ export interface AppConfig {
   facilitatorInitTimeoutMs?: number;
   /** Time from request start by which verify/settle must have answered. Default REQUEST_DEADLINE_MS. */
   requestDeadlineMs?: number;
+  /** Free MCP quota. Unset: no free tier, every MCP tool call gets the paid hint. */
+  quota?: FreeQuota;
 }
 
 /**
@@ -114,7 +118,13 @@ export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig 
   if (kind === "x402org" && network === MAINNET_NETWORK) {
     throw new Error("the x402.org facilitator is testnet only; use FACILITATOR=cdp or payai on Base mainnet");
   }
-  const base = { network, payTo, facilitatorKind: kind, publicBaseUrl: env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || undefined };
+  const base = {
+    network,
+    payTo,
+    facilitatorKind: kind,
+    publicBaseUrl: env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "") || undefined,
+    quota: quotaFromEnv(env),
+  };
   if (kind === "cdp") {
     return { ...base, facilitatorUrl: CDP_FACILITATOR_URL, facilitatorConfig: cdpFacilitatorConfig(cdpCredentialLoader(env, fetchSecret)) };
   }
@@ -459,7 +469,9 @@ export function createApp(cfg: AppConfig) {
     businessDaysPrice: BUSINESS_DAYS_PRICE,
     advisoriesPrice: ADVISORIES_PRICE,
     batchPrice: BATCH_PRICE,
+    freePerIpDaily: cfg.quota?.perIpDaily ?? FREE_PER_IP_DAILY,
   };
+  const freeLimits = { perIpDaily: prices.freePerIpDaily, globalDaily: cfg.quota?.globalDaily ?? FREE_GLOBAL_DAILY };
   const baseUrl = (c: Context) => cfg.publicBaseUrl ?? new URL(c.req.url).origin;
 
   const app = new Hono<{ Variables: { failure?: string } }>();
@@ -474,7 +486,7 @@ export function createApp(cfg: AppConfig) {
     cors({
       origin: "*",
       allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "X-PAYMENT"],
+      allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "X-PAYMENT", "MCP-Protocol-Version"],
       exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
       maxAge: 86400,
     }),
@@ -490,6 +502,13 @@ export function createApp(cfg: AppConfig) {
   app.get("/favicon.ico", (c) =>
     c.body(FAVICON_ICO, 200, { "Content-Type": "image/x-icon", "Cache-Control": "public, max-age=86400" }),
   );
+  app.get("/.well-known/mcp.json", (c) => c.json(mcpManifest(baseUrl(c), { ...freeLimits, prices })));
+
+  // Free MCP endpoint: outside /cn/* and /deps/*, so the payment middleware never runs on it.
+  app.use("/mcp", bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
+  app.post("/mcp", mcpHandler({ osv, quota: cfg.quota, ...freeLimits, prices, baseUrl }));
+  // Stateless and JSON-only: no SSE stream to open (GET) and no session to end (DELETE).
+  app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ error: "method_not_allowed", message: "POST one JSON-RPC message" }, 405, { Allow: "POST" }));
   app.get("/health", (c) =>
     c.json({ ok: true, network: cfg.network, facilitator: cfg.facilitatorKind, data_updated: calendar.dataUpdated }),
   );

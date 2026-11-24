@@ -20,10 +20,33 @@ The service is a [Hono](https://hono.dev) app with `@x402/hono` 2.32.0. It runs 
 | `GET /openapi.json`, `GET /.well-known/openapi.json` | free | OpenAPI 3.1 with full input/output schemas and examples, `x-payment-info` on each paid operation, `x-discovery.llmsTxtUrl` |
 | `GET /favicon.ico` | free | Service icon, also sent as the x402 `iconUrl` |
 | `GET /health` | free | Liveness |
+| `POST /mcp` | free quota, then x402 | MCP server (Streamable HTTP, stateless), tools `cn_workday_check` and `package_advisories`, see "Free MCP endpoint" |
+| `GET /.well-known/mcp.json` | free | MCP manifest: endpoint, tools, free quota, prices |
 
 Calendar coverage is 2020-01-01 to 2027-12-31. Every paid route validates its input **before** asking for payment: a missing or malformed date, a reversed or too-long range, a year without data, an unknown ecosystem, a missing name or version (Maven names must be `groupId:artifactId`), or a bad batch body gets a free `400`/`404` and never a `402`. Batch bodies over 64 KB get `413`. The one exception is a request with **no input at all** (no query string on a GET, an empty body on the batch POST) and no payment header: it gets the `402` quote, because discovery tools such as x402scan probe paid routes that way. If such a bare request does carry a payment, it is validated as usual and rejected with a free `400`, so it is never charged.
 
 Without a payment header a paid route returns `402` with a `PAYMENT-REQUIRED` header (x402 v2, scheme `exact`). All paid routes declare the Bazaar discovery extension (`declareDiscoveryExtension`) with input/output JSON schema, an example, `serviceName`, tags and `iconUrl`. The 402 JSON body starts with `x402Version`, `accepts` and `resource`, copied from the decoded `PAYMENT-REQUIRED` header so the two cannot differ, for clients and directories that only read the body (market402). It also explains what a plain `fetch` client needs without decoding the header: `price`, `currency`, `network`, `how_to_pay`, links to `docs` (`/openapi.json`) and `llms_txt`, and an `example` request with its response. Payment is settled only after the handler succeeds. If settlement fails the client gets the settlement error and none of the paid content.
+
+### Free MCP endpoint
+
+```bash
+claude mcp add --transport http cn-calendar https://<origin>/mcp
+```
+
+`POST /mcp` speaks MCP over Streamable HTTP without sessions: every request is one JSON-RPC message answered with one JSON response (`initialize`, `ping`, `tools/list`, `tools/call`; notifications get `202`). `GET`/`DELETE /mcp` answer `405` because there is no SSE stream or session. Two tools run the same code and data as the paid routes:
+
+| Tool | Arguments | Same data as | Paid route named after the quota |
+|---|---|---|---|
+| `cn_workday_check` | `date`, or `from` and `to` | `/cn/workday`, `/cn/business-days` | `GET /cn/workday?date=…` ($0.003) or `GET /cn/business-days?from=…&to=…` ($0.005) |
+| `package_advisories` | `ecosystem`, `name`, `version` | `/deps/advisories` | `GET /deps/advisories?…` ($0.005) |
+
+- **Free quota:** 20 tool calls per source IP per UTC day and 2,000 per UTC day for everyone together (`-c freePerIpDaily`, `-c freeGlobalDaily`). Invalid arguments are a tool error and are not counted.
+- **After the quota** the tool returns an MCP tool error (`isError: true`) whose text gives the paid x402 URL for the same lookup, its price and network, and `npx agentcash add <origin>`.
+- **Fail closed:** if the counter cannot be read or written (DynamoDB error or timeout, no table configured, no source IP), the call gets the same paid hint. It is never a free call and never a 500.
+- **No payment on this path:** `/mcp` is outside the payment middleware; it never asks the facilitator to verify or settle.
+- **No personal data:** the IP is taken from the HTTP API's `requestContext.http.sourceIp` (not `X-Forwarded-For`) and only used to build the key `ip#<day>#<sha256(day|ip), 32 hex>`. Items hold a counter and an `expires_at` TTL two days out. The hash of an IPv4 address can be reversed by brute force; the TTL is what limits that.
+- **Storage:** an on-demand DynamoDB table with TTL. The API function's role may only `dynamodb:UpdateItem` on that table, and nothing else can access it. Each counted tool call is at most two conditional `UpdateItem`s (per IP, then global).
+- Each tool call writes one `{"type":"mcp_call","tool":…,"outcome":…}` log line (`ok`, `invalid_input`, `ip_limit`, `global_limit`, `unavailable`, `upstream_error`), without the IP.
 
 ### How the advisory endpoints use OSV.dev
 
@@ -61,6 +84,8 @@ All payment settings come from environment variables. The defaults are testnet v
 | `X402_FACILITATOR_URL` | preset of `FACILITATOR` | Overrides the URL for `x402org`/`payai` only |
 | `CDP_SECRET_NAME` | `x402-content-site/cdp-api-key` | `cdp` only: Secrets Manager secret holding the CDP API key |
 | `PUBLIC_BASE_URL` | request origin | Base URL written into `/openapi.json` and `/llms.txt` |
+| `QUOTA_TABLE` | none | DynamoDB table for the free MCP quota. Unset: no free tier, every MCP tool call gets the paid hint |
+| `FREE_PER_IP_DAILY` / `FREE_GLOBAL_DAILY` | `20` / `2000` | Free MCP tool calls per IP per UTC day / for everyone per UTC day |
 | `PORT` | `8787` | Local server only |
 
 | `FACILITATOR` | URL | Use |
@@ -124,7 +149,7 @@ npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=payai -c bud
 npx cdk deploy -c payTo=0x... -c network=eip155:8453 -c facilitator=cdp -c budgetEmail=you@example.com     # mainnet, CDP Bazaar (needs the CDP key secret)
 ```
 
-Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`, `facilitatorUrl`, `cdpSecretName`, `reservedConcurrency` (default `10`), `budgetEmail`, `budgetUsd` (default `10`), `noBudget` (`true` to deploy Base mainnet without `budgetEmail`), `breakerDailyInvocations` (default `300000`, see "Cost breaker").
+Optional context keys: `region` (default `ap-northeast-1`), `stackName`, `publicBaseUrl`, `facilitatorUrl`, `cdpSecretName`, `reservedConcurrency` (default `10`), `budgetEmail`, `budgetUsd` (default `10`), `noBudget` (`true` to deploy Base mainnet without `budgetEmail`), `breakerDailyInvocations` (default `300000`, see "Cost breaker"), `freePerIpDaily` (default `20`), `freeGlobalDaily` (default `2000`).
 
 The stack is one arm64 Lambda (256 MB, 25 s timeout, under the HTTP API's 30 s integration timeout; logs kept 90 days, JSON log format) behind an API Gateway HTTP API with a Lambda proxy integration (payload format 2.0) on the `$default` route of the `$default` stage. That stage has no path prefix, so the public base URL is the origin itself, `https://<api-id>.execute-api.<region>.amazonaws.com`, and `/openapi.json`, `/.well-known/openapi.json`, `/llms.txt` and `/favicon.ico` sit at the root where discovery tools look for them. The URL is printed as the `ApiUrl` output and passed to the function as `PUBLIC_BASE_URL` (unless `-c publicBaseUrl` is given). There is no Lambda Function URL. The function's only invoke permission is for `apigateway.amazonaws.com` with a `SourceArn` on this HTTP API.
 
@@ -153,6 +178,10 @@ The breaker's IAM role allows only `lambda:PutFunctionConcurrency` on the API fu
 1. Decide whether the traffic is legitimate: look at the funnel logs (`stats count() by route, user_agent`). If it is, raise `-c breakerDailyInvocations` above the real 24-hour volume and redeploy. If it is not, wait until the 24-hour sum falls back below the threshold, which means the flood has stopped for long enough. Check this with `Invocations` Sum over the last 24 hours in CloudWatch.
 2. Restore the reserved concurrency: `aws lambda put-function-concurrency --region ap-northeast-1 --function-name <ApiFunctionName> --reserved-concurrent-executions 10`. Do not rely on a redeploy to reset it: CloudFormation only applies template changes and does not correct drift.
 3. Re-arm the breaker: `aws cloudwatch set-alarm-state --region ap-northeast-1 --alarm-name <BreakerAlarmName> --state-value OK --state-reason "manual reset after restore"`. At the next evaluation, about a minute later, the alarm returns to `ALARM` if the 24-hour sum is still above the threshold, and the breaker trips again. That is why step 1 comes first. Without this step the alarm stays in `ALARM` until the sum drops below the threshold on its own, and only then re-arms itself. A new flood during that time does not trip the breaker.
+
+### MCP Registry
+
+`server.json` describes the remote server `io.github.walkley/cn-calendar` for the [official MCP Registry](https://registry.modelcontextprotocol.io). `.github/workflows/publish-mcp.yml` publishes it with `mcp-publisher` (pinned, Sigstore-verified) and GitHub OIDC. It runs only by hand (`workflow_dispatch`, main branch only), never on a push or pull request. Run it after the stack with `POST /mcp` is deployed: its first step fails unless the remote URL answers `initialize`. Bump `version` in `server.json` and `MCP_VERSION` in `src/mcp.ts` together before publishing a change (a test checks they match).
 
 ## Funnel logs
 

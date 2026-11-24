@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.walkley/cn-calendar",
+  "title": "China Workday Calendar",
+  "description": "China workdays with official holidays and makeup days, plus package CVE checks. Free daily quota.",
+  "version": "1.0.0",
+  "websiteUrl": "https://mvqz0m8d6g.execute-api.ap-northeast-1.amazonaws.com/",
+  "repository": {
+    "url": "https://github.com/walkley/x402-content-site",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mvqz0m8d6g.execute-api.ap-northeast-1.amazonaws.com/mcp"
+    }
+  ]
+}
