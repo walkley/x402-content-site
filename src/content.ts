@@ -393,6 +393,7 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           tags: [AUDIT_TAG],
           "x-payment-info": paymentInfo(p.reportHtmlPrice),
           "x-x402-price": p.reportHtmlPrice,
+          parameters: [{ name: "format", in: "query", required: false, schema: { type: "string", enum: ["html"], default: "html", description: "Response format; html is the only one (the JSON version is /reports/x402-real-payers.json)" } }],
           responses: {
             "200": { description: "The report", content: { "text/html": { schema: { type: "string" } } } },
             "400": { description: "Unknown query parameter. Not charged." },
@@ -540,6 +541,11 @@ export function previewHtml(baseUrl: string, p: PriceInfo, sources: { year: numb
 <tr><td><code>POST /deps/advisories/batch</code> (≤ ${MAX_BATCH} packages)</td><td>${esc(p.batchPrice)}</td></tr>
 <tr><td><code>GET /sec/insider-trades?ticker=</code> (or <code>cik=</code>)</td><td>${esc(p.insiderTradesPrice)}</td></tr>
 <tr><td><code>GET /sec/latest-filings?ticker=&amp;form=&amp;limit=</code></td><td>${esc(p.latestFilingsPrice)}</td></tr></table>
+<h2>For x402 sellers: who really pays your endpoint</h2>
+<p>Check any Base payTo address: <a href="/x402/payer-audit/preview?payTo=${esc(PAYER_AUDIT_EXAMPLE_INPUT.payTo)}">free preview</a> (payer counts per label) ·
+<a href="/x402/payer-audit?payTo=${esc(PAYER_AUDIT_EXAMPLE_INPUT.payTo)}">see every payer, ${esc(p.payerAuditPrice)}</a> (browser wallet or x402 client) ·
+<a href="/reports/x402-real-payers">x402 market report summary</a> (free) · <a href="/reports/x402-real-payers/full">full report, ${esc(p.reportHtmlPrice)}</a>.
+The example links use our own payTo; the <a href="/reports/x402-real-payers">report page</a> has a form for yours.</p>
 <h1>${SERVICE_NAME}</h1>
 <p>中国法定节假日与调休工作日查询。A pay-per-call API for AI agents: is a date a working day in mainland China, counting official holidays and weekend makeup workdays (调休补班) from State Council notices. Paid with USDC over <a href="https://www.x402.org">x402</a> on <code>${esc(p.network)}</code>.</p>
 <p>Coverage <b>${calendar.firstDate}</b> to <b>${calendar.lastDate}</b>. Data updated <b>${calendar.dataUpdated}</b>.</p>

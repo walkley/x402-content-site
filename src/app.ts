@@ -50,6 +50,7 @@ import {
   auditDetail,
   auditPreview,
   auditStoreFromEnv,
+  auditSuggestions,
   notIndexed,
   parsePayTo,
   type AuditRecord,
@@ -66,6 +67,9 @@ import {
   REPORT_JSON_PATH,
   REPORT_PATH,
   REPORT_TITLE,
+  auditBusyHtml,
+  auditDetailHtml,
+  auditPreviewHtml,
   reportBusyHtml,
   reportFullHtml,
   reportSummaryHtml,
@@ -441,6 +445,11 @@ export function createApp(cfg: AppConfig) {
     return record;
   };
   const noParams = (c: Context) => knownQuery(c, ["src"]);
+  // format is declared in openapi so x402scan finds an input schema; html is the only format.
+  const reportFullQuery = (c: Context) => {
+    const { format } = knownQuery(c, ["format", "src"]);
+    if (format !== undefined && format !== "html") throw new InputError("invalid_format", "format must be html (or omitted)");
+  };
   const paidRoutes: Record<string, PaidRoute> = {
     ...PAID_ROUTES,
     [PAYER_AUDIT_PATH]: {
@@ -449,7 +458,7 @@ export function createApp(cfg: AppConfig) {
       example: () => ({ query: new URLSearchParams(PAYER_AUDIT_EXAMPLE_INPUT).toString(), allowed: { payTo: "0x + 40 hex digits: the payTo in your x402 accepts (Base)" } }),
     },
     [REPORT_JSON_PATH]: { method: "GET", validate: noParams, example: () => ({ allowed: { src: "optional, ignored" } }) },
-    [REPORT_FULL_PATH]: { method: "GET", validate: noParams, example: () => ({ allowed: { src: "optional, ignored" } }) },
+    [REPORT_FULL_PATH]: { method: "GET", validate: reportFullQuery, example: () => ({ allowed: { format: "optional, html", src: "optional, ignored" } }) },
   };
   // Correlates x402 hook callbacks (which only see the request context) with the HTTP request.
   // Keyed by the payment header string; entries are removed when the request finishes.
@@ -672,19 +681,23 @@ export function createApp(cfg: AppConfig) {
   // the instance's first request is free, Lambda freezes the instance with that request in flight; its 90 s abort
   // timer then fires on wake and the next paid request got a 502. We sync ourselves instead: during Lambda init
   // (lambda.ts awaits initFacilitator), and again before a paid request if that did not succeed.
-  // Browsers on the HTML report get the official x402 paywall (wallet connect, USDC balance, EIP-3009 signature in the
-  // browser); testnet follows the network, so Base mainnet shows mainnet. No CDP key: the paywall config has none. The
+  // Browsers on the HTML report and on the payer audit get the official x402 paywall (wallet connect, USDC balance,
+  // EIP-3009 signature in the browser); testnet follows the network, so Base mainnet shows mainnet. No CDP key: the paywall config has none. The
   // page loads the Coinbase Wallet / Base Account SDK (keys.coinbase.com popup when that wallet is picked); its default
   // usage telemetry to cca-lite.coinbase.com is switched off by paywallWithoutTelemetry. Every other paid route keeps
   // BASIC_402_HTML.
   // Only @x402/paywall/evm is imported (2.5 MB); the package root bundles the Solana and Algorand pages too (7.8 MB).
-  const paywallConfig = { appName: REPORT_TITLE, testnet: cfg.network !== MAINNET_NETWORK };
+  // After payment the paywall shows an HTML response in place and opens any other type as a blob, so the audit
+  // answers that fetch with HTML (see its handler).
+  const paywallAppNames: Record<string, string> = { [REPORT_FULL_PATH]: REPORT_TITLE, [PAYER_AUDIT_PATH]: "x402 payer audit" };
+  const testnet = cfg.network !== MAINNET_NETWORK;
   const httpServer = new x402HTTPResourceServer(server, routes).registerPaywallProvider({
     generateHtml: (required) => {
       const path = required.resource?.url ? new URL(required.resource.url).pathname : "";
+      const appName = Object.hasOwn(paywallAppNames, path) ? paywallAppNames[path] : undefined;
       const [requirement] = required.accepts;
-      return path === REPORT_FULL_PATH && requirement && evmPaywall.supports(requirement)
-        ? paywallWithoutTelemetry(evmPaywall.generateHtml(requirement, required, paywallConfig))
+      return appName && requirement && evmPaywall.supports(requirement)
+        ? paywallWithoutTelemetry(evmPaywall.generateHtml(requirement, required, { appName, testnet }))
         : BASIC_402_HTML;
     },
   });
@@ -897,37 +910,45 @@ export function createApp(cfg: AppConfig) {
     if (e instanceof UpstreamError) return c.json({ error: "upstream_unavailable", message: `${e.message}. Retry later.` }, 502);
     throw e;
   };
+  // Same test as @x402/core uses to pick its browser page.
+  const isBrowser = (c: Context) => (c.req.header("accept") ?? "").includes("text/html") && (c.req.header("user-agent") ?? "").includes("Mozilla");
   app.get(PAYER_AUDIT_PREVIEW_PATH, async (c) => {
     try {
-      return c.json(auditPreview(await loadAudit(c, ["payTo"])));
+      const record = await loadAudit(c, ["payTo"]);
+      if (isBrowser(c)) return c.html(auditPreviewHtml(baseUrl(c), auditPreview(record), auditSuggestions(record)[0], PAYER_AUDIT_PRICE));
+      return c.json(auditPreview(record));
     } catch (e) {
       return auditError(c, e);
     }
   });
-  const reportPrices = { html: REPORT_HTML_PRICE, json: REPORT_JSON_PRICE };
+  const reportPrices = { html: REPORT_HTML_PRICE, json: REPORT_JSON_PRICE, audit: PAYER_AUDIT_PRICE, auditExamplePayTo: PAYER_AUDIT_EXAMPLE_INPUT.payTo };
   app.get(REPORT_PATH, (c) => c.html(reportSummaryHtml(baseUrl(c), reportPrices)));
   // The browser paywall page is 2.5 MB of script, 0.68 MB gzipped (Lambda base64-encodes it). Egress bound: an unpaid
-  // browser request gets it only if it accepts gzip and today's PAYWALL_DAILY renders are not used up; otherwise a
-  // 1 KB page pointing to the summary and the JSON version. Worst case 2,000 x 0.68 MB = 1.4 GB a day.
-  app.use(REPORT_FULL_PATH, compress());
-  app.use(REPORT_FULL_PATH, async (c, next) => {
-    const paying = c.req.header("payment-signature") || c.req.header("x-payment");
-    const browser = (c.req.header("accept") ?? "").includes("text/html") && (c.req.header("user-agent") ?? "").includes("Mozilla");
-    if (paying || !browser) return next();
-    if (!/\bgzip\b/i.test(c.req.header("accept-encoding") ?? "")) {
-      return c.html(reportBusyHtml(baseUrl(c), "Your client does not accept gzip, which the payment page needs."), 406);
-    }
-    let allowed = true;
-    try {
-      allowed = cfg.paywallCap ? await cfg.paywallCap.take() : true;
-    } catch {
-      allowed = false; // counter unavailable: fail closed, the small page costs nothing
-    }
-    if (!allowed) {
-      return c.html(reportBusyHtml(baseUrl(c), "Today's payment page limit is reached. Try again after 00:00 UTC."), 429, { "Retry-After": "3600" });
-    }
-    return next();
-  });
+  // browser request gets it only if it accepts gzip and today's PAYWALL_DAILY renders (shared by the report and the
+  // audit) are not used up; otherwise a 1 KB page pointing to the free version. Worst case 2,000 x 0.68 MB = 1.4 GB a day.
+  // The report compresses every response; the audit only the browser page, so agents get the same bytes as before.
+  const browserPaywallGate = (busy: (c: Context, reason: string) => string, compressAll: boolean): MiddlewareHandler => {
+    const gzip = compress();
+    return async (c, next) => {
+      const paying = c.req.header("payment-signature") || c.req.header("x-payment");
+      if (paying || !isBrowser(c)) return compressAll ? gzip(c, next) : next();
+      if (!/\bgzip\b/i.test(c.req.header("accept-encoding") ?? "")) {
+        return c.html(busy(c, "Your client does not accept gzip, which the payment page needs."), 406);
+      }
+      let allowed = true;
+      try {
+        allowed = cfg.paywallCap ? await cfg.paywallCap.take() : true;
+      } catch {
+        allowed = false; // counter unavailable: fail closed, the small page costs nothing
+      }
+      if (!allowed) {
+        return c.html(busy(c, "Today's payment page limit is reached. Try again after 00:00 UTC."), 429, { "Retry-After": "3600" });
+      }
+      return gzip(c, next);
+    };
+  };
+  app.use(REPORT_FULL_PATH, browserPaywallGate((c, reason) => reportBusyHtml(baseUrl(c), reason), true));
+  app.use(PAYER_AUDIT_PATH, browserPaywallGate((c, reason) => auditBusyHtml(baseUrl(c), reason, c.req.query("payTo")), false));
 
   const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
   for (const prefix of ["/cn/*", "/deps/*", "/sec/*", "/x402/*", "/reports/*"]) {
@@ -939,7 +960,13 @@ export function createApp(cfg: AppConfig) {
 
   app.get(PAYER_AUDIT_PATH, async (c) => {
     try {
-      return c.json(auditDetail(await loadAudit(c)));
+      const detail = auditDetail(await loadAudit(c));
+      // The paywall page's own fetch after payment (it adds this request header; agents do not): it renders an HTML
+      // response in place but opens JSON as a raw blob, so the person who paid gets the readable page.
+      if (c.req.header("access-control-expose-headers") !== undefined && c.req.header("sec-fetch-mode") !== undefined) {
+        return c.html(auditDetailHtml(baseUrl(c), detail));
+      }
+      return c.json(detail);
     } catch (e) {
       return upstreamFailure(c, e);
     }
