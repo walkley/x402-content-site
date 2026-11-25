@@ -1,7 +1,7 @@
 // "Who really pays for x402": a fixed research report (numbers from research rounds r12, r21 and r23 of this project,
 // Base mainnet USDC, 2026-10-26..2026-11-25). Free summary page, $2 HTML body behind the x402 browser paywall, $0.5 JSON.
 import probeFile from "../data/payer-audit/probe-wallets.json";
-import { LABEL_DISCLAIMER } from "./payer-audit.js";
+import { LABEL_DISCLAIMER, PAYER_LABELS, type auditDetail, type auditPreview } from "./payer-audit.js";
 
 export const REPORT_PATH = "/reports/x402-real-payers";
 export const REPORT_FULL_PATH = `${REPORT_PATH}/full`;
@@ -13,6 +13,12 @@ export const REPORT_DESCRIPTION =
   "which facilitators settle, case studies of sellers with their own users, and the 164-wallet probe list";
 
 const window = { from: "2026-10-26T01:18:00+08:00", to: "2026-11-25T00:52:00+08:00", from_block: 53_077_945, to_block: 61_743_941, chain: "Base (eip155:8453)", asset: "USDC" };
+
+// In the paid report only: on the free summary page it reads as a reason not to buy the payer audit.
+const SELLER_TOOLS_FINDING = "Tools for x402 sellers (402 lint, listing checks, trust scores) had few non-probe payers: 1 to 5 each.";
+/** Same paths as PAYER_AUDIT_PATH / PAYER_AUDIT_PREVIEW_PATH in app.ts (which imports this file). */
+const AUDIT_PATH = "/x402/payer-audit";
+const AUDIT_PREVIEW_PATH = `${AUDIT_PATH}/preview`;
 
 export const REPORT = {
   title: REPORT_TITLE,
@@ -38,7 +44,7 @@ export const REPORT = {
     "After removing probes, fleets and single-seller bots, 779 independent operators paid $6,284 in 30 days. Their median operator pays one seller.",
     "46 of 50 sampled settlements of representative payers were sent by Coinbase CDP facilitator relayers, 2 by Ultravioleta, 1 by OpenFacilitator, 0 by PayAI.",
     "Of the PayAI sellers studied, laevitas and wurk were the only ones whose main payers were funded from outside the seller (by the funding rule below).",
-    "Tools for x402 sellers (402 lint, listing checks, trust scores) had few non-probe payers: 1 to 5 each.",
+    SELLER_TOOLS_FINDING,
   ],
   categories: {
     note: "Independent operators only, by the seller's directory description (first match). A payTo selling several things is counted once.",
@@ -141,30 +147,30 @@ const table = (cols: string[], rows: unknown[][]) =>
     .map((r) => `<tr>${r.map((v) => `<td>${num(v)}</td>`).join("")}</tr>`)
     .join("")}</tbody></table>`;
 
-const page = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><meta name="description" content="${esc(REPORT_DESCRIPTION)}">
+const page = (title: string, body: string, description = REPORT_DESCRIPTION) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title><meta name="description" content="${esc(description)}">
 <style>body{font:16px/1.55 system-ui,sans-serif;max-width:880px;margin:2rem auto;padding:0 1rem;color:#1b1b1b}table{border-collapse:collapse;width:100%;margin:.6rem 0 1.4rem;font-size:14px}th,td{border:1px solid #ddd;padding:.3rem .45rem;text-align:left;vertical-align:top}th{background:#f4f4f4}code{background:#f4f4f4;padding:0 .2rem}.buy{display:inline-block;background:#0052ff;color:#fff;padding:.6rem 1rem;border-radius:6px;text-decoration:none;margin-right:.6rem}small{color:#666}</style></head><body>${body}</body></html>`;
 
 const headline = () => table(["metric", "value", "USD"], REPORT.headline.map((h) => [h.metric, h.value, "usd" in h ? `$${num(h.usd)}` : ""]));
 
-export function reportSummaryHtml(baseUrl: string, prices: { html: string; json: string }) {
+export function reportSummaryHtml(baseUrl: string, prices: { html: string; json: string; audit: string; auditExamplePayTo: string }) {
   return page(
     REPORT_TITLE,
     `<h1>${esc(REPORT_TITLE)}</h1>
 <p><small>Version ${esc(REPORT.version)}. ${esc(REPORT.window.chain)}, blocks ${num(REPORT.window.from_block)}-${num(REPORT.window.to_block)} (2026-10-26 to 2026-11-25).</small></p>
 <p>${esc(REPORT.scope)}</p>
 <h2>Headline numbers (free)</h2>${headline()}
-<h2>Key findings</h2><ul>${REPORT.key_findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+<h2>Key findings</h2><ul>${REPORT.key_findings.filter((f) => f !== SELLER_TOOLS_FINDING).map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
 <h2>Full report</h2>
 <p>The full report adds: what independent operators buy (by category, against how many sellers offer it), the top 20 repeat payers,
 case studies of six PayAI sellers with the funding trail behind their payers, seller-tool demand, facilitator shares, the labelling rules,
 and the 164 probe and test-buy wallets as a table.</p>
 <p><a class="buy" href="${esc(baseUrl + REPORT_FULL_PATH)}">Read the full report (${esc(prices.html)} USDC on Base)</a>
 <a class="buy" href="${esc(baseUrl + REPORT_JSON_PATH)}">JSON for agents (${esc(prices.json)}, x402)</a></p>
+${auditForm(baseUrl, prices.audit, prices.auditExamplePayTo)}
 <p><small>${esc(LABEL_DISCLAIMER)}</small></p>
 <p><small>Payment is an x402 USDC authorization on Base signed in your browser wallet (MetaMask or another EOA wallet; a Coinbase Smart Wallet works once it has been deployed by an earlier transaction, a brand-new one is refused by the facilitator). No account, no sign-up.
-The payment page is the official x402 paywall: it loads the Coinbase Wallet / Base Account SDK (choosing Coinbase Wallet opens keys.coinbase.com) and reads your USDC balance from a public Base RPC; we switch the SDK's usage telemetry off.
-Per-seller data: <code>GET ${esc(baseUrl)}/x402/payer-audit/preview?payTo=0x...</code> (free).</small></p>`,
+The payment page is the official x402 paywall: it loads the Coinbase Wallet / Base Account SDK (choosing Coinbase Wallet opens keys.coinbase.com) and reads your USDC balance from a public Base RPC; we switch the SDK's usage telemetry off.</small></p>`,
   );
 }
 
@@ -183,6 +189,67 @@ export function reportFullHtml() {
 <h2>Who settles</h2><p>${esc(r.facilitators.note)}</p>${table(["facilitator", "sampled payers"], r.facilitators.rows)}
 <h2>Method</h2><p><strong>${esc(r.method.disclaimer)}</strong></p>${table(["label", "rule"], Object.entries(r.method.labels))}<p>${esc(r.method.probe_list)}</p><p>${esc(r.method.excluded)}</p><ul>${r.method.limits.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
 <h2>Probe and test-buy wallets (${r.probe_wallets.length})</h2>${table(["address", "group", "label"], r.probe_wallets.map((w) => [w.address, w.group, w.label]))}`,
+  );
+}
+
+/** The per-seller audit entry: a payTo field with a free preview button and a paid button, plus an example. */
+export function auditForm(baseUrl: string, price: string, examplePayTo: string) {
+  const q = `?payTo=${encodeURIComponent(examplePayTo)}`;
+  return `<h2>Audit your own payTo</h2>
+<p>Who pays your x402 endpoint: payer counts per label for free, every payer with label, funders and suggestions for ${esc(price)}.</p>
+<form method="get" action="${esc(baseUrl + AUDIT_PREVIEW_PATH)}"><input name="payTo" placeholder="0x... (your Base payTo)" pattern="0x[0-9a-fA-F]{40}" required size="44">
+<button type="submit">Free preview</button> <button type="submit" formaction="${esc(baseUrl + AUDIT_PATH)}">See every payer, ${esc(price)}</button></form>
+<p><small>Example: <a href="${esc(baseUrl + AUDIT_PREVIEW_PATH + q)}">free preview</a> · <a href="${esc(baseUrl + AUDIT_PATH + q)}">full audit (${esc(price)})</a> for ${esc(examplePayTo)}.</small></p>`;
+}
+
+const AUDIT_TITLE = "Who really pays your x402 endpoint";
+
+/** Free preview for a browser: counts per label, one suggestion, and the paid link. Agents get the JSON preview. */
+export function auditPreviewHtml(baseUrl: string, preview: ReturnType<typeof auditPreview>, suggestion: string | undefined, price: string) {
+  const paid = `${baseUrl}${AUDIT_PATH}?payTo=${encodeURIComponent(preview.pay_to)}`;
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
+  return page(
+    `${AUDIT_TITLE}: ${preview.pay_to}`,
+    `<h1>${esc(AUDIT_TITLE)}</h1>
+<p><code>${esc(preview.pay_to)}</code>, Base USDC, ${esc(preview.window.from.slice(0, 10))} to ${esc(preview.window.to.slice(0, 10))}: <b>${num(preview.payer_count)}</b> payers.</p>
+${table(["label", "payers"], PAYER_LABELS.map((l) => [l, preview.by_label[l]]))}
+<p>Probe share: ${pct(preview.probe_share.payers)} of payers, ${pct(preview.probe_share.usd)} of USD.</p>
+${suggestion ? `<h2>Example suggestion</h2><p>${esc(suggestion)}</p>` : ""}
+<p>The full audit lists every payer with label, reason, tx count, USD, funders and settling facilitator, the CDP / PayAI listing status, and all suggestions.</p>
+<p><a class="buy" href="${esc(paid)}">See every payer, ${esc(price)}</a></p>
+<p><small>${esc(preview.disclaimer)}</small></p>
+<p><small>Payment is an x402 USDC authorization on Base signed in your browser wallet (MetaMask or another EOA wallet). No account, no sign-up. After payment the full audit opens as a page in this tab.
+<a href="${esc(baseUrl + REPORT_PATH)}">Market report</a></small></p>`,
+    AUDIT_TITLE,
+  );
+}
+
+/** The paid audit as a page, for the paywall's fetch after a browser payment. Same data as the JSON. */
+export function auditDetailHtml(baseUrl: string, d: ReturnType<typeof auditDetail>) {
+  const usd = (n: number) => `$${n.toFixed(n !== 0 && n < 0.01 ? 4 : 2)}`;
+  return page(
+    `${AUDIT_TITLE}: ${d.pay_to}`,
+    `<h1>${esc(AUDIT_TITLE)}</h1>
+<p><code>${esc(d.pay_to)}</code>, Base USDC, ${esc(d.window.from.slice(0, 10))} to ${esc(d.window.to.slice(0, 10))}. Data built ${esc(d.generated_at)}.</p>
+<p>Totals: ${num(d.totals.payers)} payers, ${num(d.totals.tx)} payments, ${usd(d.totals.usd)}. Listed: CDP Bazaar ${d.listing.cdp ? "yes" : "no"}, PayAI ${d.listing.payai ? "yes" : "no"}.</p>
+${table(["label", "payers", "payments", "USD"], PAYER_LABELS.map((l) => [l, d.by_label_detail[l].payers, d.by_label_detail[l].tx, usd(d.by_label_detail[l].usd)]))}
+<h2>Suggestions</h2><ul>${d.suggestions.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
+<h2>Payers (${d.payers.length})</h2>
+${table(["address", "label", "reason", "payments", "USD", "days", "funders", "facilitator"], d.payers.map((p) => [p.address, p.label, p.reason, p.tx, usd(p.usd), p.days, p.funders.map((f) => f.address).join(", "), p.facilitator ?? ""]))}
+<p><small>${esc(d.disclaimer)}</small></p>
+<p><small>Agents get this as JSON from the same URL. <a href="${esc(baseUrl + REPORT_PATH)}">Market report</a></small></p>`,
+    AUDIT_TITLE,
+  );
+}
+
+/** The audit's small page when the paywall page cannot be served (no gzip, daily limit). */
+export function auditBusyHtml(baseUrl: string, reason: string, payTo: string | undefined) {
+  const q = payTo ? `?payTo=${encodeURIComponent(payTo)}` : "";
+  return page(
+    AUDIT_TITLE,
+    `<h1>Payment page unavailable</h1><p>${esc(reason)}</p>
+<p><a href="${esc(baseUrl + AUDIT_PREVIEW_PATH + q)}">Free preview</a> · <a href="${esc(baseUrl + REPORT_PATH)}">Market report</a></p>`,
+    AUDIT_TITLE,
   );
 }
 

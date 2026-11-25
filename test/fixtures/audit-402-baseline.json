@@ -1,0 +1,1343 @@
+{
+  "GET /x402/payer-audit": {
+    "status": 402,
+    "paymentRequired": {
+      "x402Version": 2,
+      "error": "Payment required",
+      "resource": {
+        "url": "http://localhost/x402/payer-audit",
+        "description": "Who really pays your x402 endpoint. For a Base payTo address: every USDC payer in the last 30 days labelled probe (directory probe or test-buy wallet, 164-wallet list), self (funded by the payTo or a wallet it funded), fleet (one funder sent the same amount to 3+ payers), real (3+ payments on 2+ days) or once; with tx count, USD, funders, settling facilitator, CDP/PayAI listing status and suggestions. A payTo not in the data set is a free 404. Data rebuilt offline from Base RPC. Labels are rule-based classifications of public transfers, not allegations; they can be wrong (refunds, promotional credits).",
+        "mimeType": "application/json",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ],
+        "iconUrl": "https://api.example.test/icon.png"
+      },
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "50000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "extensions": {
+        "bazaar": {
+          "info": {
+            "input": {
+              "type": "http",
+              "queryParams": {
+                "payTo": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2"
+              },
+              "method": "GET"
+            },
+            "output": {
+              "type": "json",
+              "example": {
+                "pay_to": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+                "generated_at": "2026-11-25T04:02:30.063Z",
+                "window": {
+                  "from_block": 53098985,
+                  "to_block": 61944702,
+                  "from": "2026-10-26T04:01:57.000Z",
+                  "to": "2026-11-25T04:01:56.000Z"
+                },
+                "payer_count": 2,
+                "by_label": {
+                  "probe": 1,
+                  "self": 1,
+                  "fleet": 0,
+                  "real": 0,
+                  "once": 0
+                },
+                "probe_share": {
+                  "payers": 0.5,
+                  "usd": 0.316
+                },
+                "disclaimer": "Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues",
+                "totals": {
+                  "payers": 2,
+                  "tx": 5,
+                  "usd": 0.019
+                },
+                "by_label_detail": {
+                  "probe": {
+                    "payers": 1,
+                    "tx": 2,
+                    "usd": 0.006
+                  },
+                  "self": {
+                    "payers": 1,
+                    "tx": 3,
+                    "usd": 0.013
+                  },
+                  "fleet": {
+                    "payers": 0,
+                    "tx": 0,
+                    "usd": 0
+                  },
+                  "real": {
+                    "payers": 0,
+                    "tx": 0,
+                    "usd": 0
+                  },
+                  "once": {
+                    "payers": 0,
+                    "tx": 0,
+                    "usd": 0
+                  }
+                },
+                "large_transfers": {
+                  "tx": 0,
+                  "usd": 0
+                },
+                "listing": {
+                  "snapshot": "2026-11-24",
+                  "cdp": false,
+                  "payai": false,
+                  "hosts": [],
+                  "resources": 0
+                },
+                "facilitators": {
+                  "payai": 2
+                },
+                "probe_list": {
+                  "wallets": 164,
+                  "source": "x402-content-site data/payer-audit/probe-wallets.json"
+                },
+                "suggestions": [
+                  "1 of 2 payers are directory probes and test-buy wallets ($0.006). Do not count them as users; they pay once per new route to check delivery.",
+                  "1 payers ($0.01) are labelled self: they received USDC from this payTo or from a wallet it funded. If those transfers were not refunds or credits to customers, leave these payers out of revenue and listing metrics.",
+                  "No payer paid on 2 or more days with 3 or more payments. Repeat use is the signal to watch; directory listing alone has not produced it.",
+                  "Not in the CDP Bazaar snapshot. CDP lists a route after the CDP facilitator settles a payment for it; most sampled agent payments on Base are settled by CDP.",
+                  "Not in the PayAI directory snapshot. PayAI lists a route after it settles one payment for it (a self-payment works).",
+                  "All revenue in the window came from payers labelled probe, self or fleet."
+                ],
+                "payers": [
+                  {
+                    "address": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+                    "label": "self",
+                    "reason": "payer is the payTo",
+                    "tx": 3,
+                    "usd": 0.013,
+                    "days": 1,
+                    "first_day": "2026-11-24",
+                    "last_day": "2026-11-24",
+                    "funders": [],
+                    "facilitator": "payai"
+                  },
+                  {
+                    "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+                    "label": "probe",
+                    "reason": "probe list (spray4)",
+                    "tx": 2,
+                    "usd": 0.006,
+                    "days": 1,
+                    "first_day": "2026-11-24",
+                    "last_day": "2026-11-24",
+                    "funders": [],
+                    "facilitator": "payai"
+                  }
+                ]
+              }
+            }
+          },
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "http"
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "GET"
+                    ]
+                  },
+                  "queryParams": {
+                    "type": "object",
+                    "properties": {
+                      "payTo": {
+                        "type": "string",
+                        "pattern": "^0x[0-9a-fA-F]{40}$",
+                        "description": "The payTo address in your x402 accepts (Base)",
+                        "examples": [
+                          "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "payTo"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "type",
+                  "method"
+                ],
+                "additionalProperties": false
+              },
+              "output": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "example": {
+                    "type": "object",
+                    "properties": {
+                      "pay_to": {
+                        "type": "string"
+                      },
+                      "generated_at": {
+                        "type": "string"
+                      },
+                      "window": {
+                        "type": "object"
+                      },
+                      "payer_count": {
+                        "type": "integer"
+                      },
+                      "by_label": {
+                        "type": "object",
+                        "description": "payer count per label"
+                      },
+                      "probe_share": {
+                        "type": "object",
+                        "properties": {
+                          "payers": {
+                            "type": "number"
+                          },
+                          "usd": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "totals": {
+                        "type": "object",
+                        "properties": {
+                          "payers": {
+                            "type": "integer"
+                          },
+                          "tx": {
+                            "type": "integer"
+                          },
+                          "usd": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "by_label_detail": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "payers": {
+                              "type": "integer"
+                            },
+                            "tx": {
+                              "type": "integer"
+                            },
+                            "usd": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      },
+                      "listing": {
+                        "type": "object",
+                        "properties": {
+                          "cdp": {
+                            "type": "boolean"
+                          },
+                          "payai": {
+                            "type": "boolean"
+                          },
+                          "hosts": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "facilitators": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "integer"
+                        }
+                      },
+                      "suggestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "payers": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "address": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string",
+                              "enum": [
+                                "probe",
+                                "self",
+                                "fleet",
+                                "real",
+                                "once"
+                              ]
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "tx": {
+                              "type": "integer"
+                            },
+                            "usd": {
+                              "type": "number"
+                            },
+                            "days": {
+                              "type": "integer"
+                            },
+                            "funders": {
+                              "type": "array",
+                              "items": {
+                                "type": "object"
+                              }
+                            },
+                            "facilitator": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "pay_to",
+                      "payers",
+                      "by_label",
+                      "suggestions"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "input"
+            ]
+          }
+        }
+      }
+    },
+    "body": {
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "50000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "resource": {
+        "url": "http://localhost/x402/payer-audit",
+        "description": "Who really pays your x402 endpoint. For a Base payTo address: every USDC payer in the last 30 days labelled probe (directory probe or test-buy wallet, 164-wallet list), self (funded by the payTo or a wallet it funded), fleet (one funder sent the same amount to 3+ payers), real (3+ payments on 2+ days) or once; with tx count, USD, funders, settling facilitator, CDP/PayAI listing status and suggestions. A payTo not in the data set is a free 404. Data rebuilt offline from Base RPC. Labels are rule-based classifications of public transfers, not allegations; they can be wrong (refunds, promotional credits).",
+        "mimeType": "application/json",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ],
+        "iconUrl": "https://api.example.test/icon.png"
+      },
+      "error": "Payment required",
+      "price": "$0.05",
+      "currency": "USDC",
+      "network": "eip155:8453",
+      "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+      "docs": "https://api.example.test/openapi.json",
+      "llms_txt": "https://api.example.test/llms.txt",
+      "install": "npx agentcash add https://api.example.test",
+      "example": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.example.test/x402/payer-audit?payTo=0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2"
+        },
+        "response": {
+          "pay_to": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+          "generated_at": "2026-11-25T04:02:30.063Z",
+          "window": {
+            "from_block": 53098985,
+            "to_block": 61944702,
+            "from": "2026-10-26T04:01:57.000Z",
+            "to": "2026-11-25T04:01:56.000Z"
+          },
+          "payer_count": 2,
+          "by_label": {
+            "probe": 1,
+            "self": 1,
+            "fleet": 0,
+            "real": 0,
+            "once": 0
+          },
+          "probe_share": {
+            "payers": 0.5,
+            "usd": 0.316
+          },
+          "disclaimer": "Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues",
+          "totals": {
+            "payers": 2,
+            "tx": 5,
+            "usd": 0.019
+          },
+          "by_label_detail": {
+            "probe": {
+              "payers": 1,
+              "tx": 2,
+              "usd": 0.006
+            },
+            "self": {
+              "payers": 1,
+              "tx": 3,
+              "usd": 0.013
+            },
+            "fleet": {
+              "payers": 0,
+              "tx": 0,
+              "usd": 0
+            },
+            "real": {
+              "payers": 0,
+              "tx": 0,
+              "usd": 0
+            },
+            "once": {
+              "payers": 0,
+              "tx": 0,
+              "usd": 0
+            }
+          },
+          "large_transfers": {
+            "tx": 0,
+            "usd": 0
+          },
+          "listing": {
+            "snapshot": "2026-11-24",
+            "cdp": false,
+            "payai": false,
+            "hosts": [],
+            "resources": 0
+          },
+          "facilitators": {
+            "payai": 2
+          },
+          "probe_list": {
+            "wallets": 164,
+            "source": "x402-content-site data/payer-audit/probe-wallets.json"
+          },
+          "suggestions": [
+            "1 of 2 payers are directory probes and test-buy wallets ($0.006). Do not count them as users; they pay once per new route to check delivery.",
+            "1 payers ($0.01) are labelled self: they received USDC from this payTo or from a wallet it funded. If those transfers were not refunds or credits to customers, leave these payers out of revenue and listing metrics.",
+            "No payer paid on 2 or more days with 3 or more payments. Repeat use is the signal to watch; directory listing alone has not produced it.",
+            "Not in the CDP Bazaar snapshot. CDP lists a route after the CDP facilitator settles a payment for it; most sampled agent payments on Base are settled by CDP.",
+            "Not in the PayAI directory snapshot. PayAI lists a route after it settles one payment for it (a self-payment works).",
+            "All revenue in the window came from payers labelled probe, self or fleet."
+          ],
+          "payers": [
+            {
+              "address": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+              "label": "self",
+              "reason": "payer is the payTo",
+              "tx": 3,
+              "usd": 0.013,
+              "days": 1,
+              "first_day": "2026-11-24",
+              "last_day": "2026-11-24",
+              "funders": [],
+              "facilitator": "payai"
+            },
+            {
+              "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+              "label": "probe",
+              "reason": "probe list (spray4)",
+              "tx": 2,
+              "usd": 0.006,
+              "days": 1,
+              "first_day": "2026-11-24",
+              "last_day": "2026-11-24",
+              "funders": [],
+              "facilitator": "payai"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "GET /x402/payer-audit?payTo=0x4348df1befaffcba248b5118b1b782b1b2bded14": {
+    "status": 402,
+    "paymentRequired": {
+      "x402Version": 2,
+      "error": "Payment required",
+      "resource": {
+        "url": "http://localhost/x402/payer-audit?payTo=0x4348df1befaffcba248b5118b1b782b1b2bded14",
+        "description": "Who really pays your x402 endpoint. For a Base payTo address: every USDC payer in the last 30 days labelled probe (directory probe or test-buy wallet, 164-wallet list), self (funded by the payTo or a wallet it funded), fleet (one funder sent the same amount to 3+ payers), real (3+ payments on 2+ days) or once; with tx count, USD, funders, settling facilitator, CDP/PayAI listing status and suggestions. A payTo not in the data set is a free 404. Data rebuilt offline from Base RPC. Labels are rule-based classifications of public transfers, not allegations; they can be wrong (refunds, promotional credits).",
+        "mimeType": "application/json",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ],
+        "iconUrl": "https://api.example.test/icon.png"
+      },
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "50000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "extensions": {
+        "bazaar": {
+          "info": {
+            "input": {
+              "type": "http",
+              "queryParams": {
+                "payTo": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2"
+              },
+              "method": "GET"
+            },
+            "output": {
+              "type": "json",
+              "example": {
+                "pay_to": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+                "generated_at": "2026-11-25T04:02:30.063Z",
+                "window": {
+                  "from_block": 53098985,
+                  "to_block": 61944702,
+                  "from": "2026-10-26T04:01:57.000Z",
+                  "to": "2026-11-25T04:01:56.000Z"
+                },
+                "payer_count": 2,
+                "by_label": {
+                  "probe": 1,
+                  "self": 1,
+                  "fleet": 0,
+                  "real": 0,
+                  "once": 0
+                },
+                "probe_share": {
+                  "payers": 0.5,
+                  "usd": 0.316
+                },
+                "disclaimer": "Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues",
+                "totals": {
+                  "payers": 2,
+                  "tx": 5,
+                  "usd": 0.019
+                },
+                "by_label_detail": {
+                  "probe": {
+                    "payers": 1,
+                    "tx": 2,
+                    "usd": 0.006
+                  },
+                  "self": {
+                    "payers": 1,
+                    "tx": 3,
+                    "usd": 0.013
+                  },
+                  "fleet": {
+                    "payers": 0,
+                    "tx": 0,
+                    "usd": 0
+                  },
+                  "real": {
+                    "payers": 0,
+                    "tx": 0,
+                    "usd": 0
+                  },
+                  "once": {
+                    "payers": 0,
+                    "tx": 0,
+                    "usd": 0
+                  }
+                },
+                "large_transfers": {
+                  "tx": 0,
+                  "usd": 0
+                },
+                "listing": {
+                  "snapshot": "2026-11-24",
+                  "cdp": false,
+                  "payai": false,
+                  "hosts": [],
+                  "resources": 0
+                },
+                "facilitators": {
+                  "payai": 2
+                },
+                "probe_list": {
+                  "wallets": 164,
+                  "source": "x402-content-site data/payer-audit/probe-wallets.json"
+                },
+                "suggestions": [
+                  "1 of 2 payers are directory probes and test-buy wallets ($0.006). Do not count them as users; they pay once per new route to check delivery.",
+                  "1 payers ($0.01) are labelled self: they received USDC from this payTo or from a wallet it funded. If those transfers were not refunds or credits to customers, leave these payers out of revenue and listing metrics.",
+                  "No payer paid on 2 or more days with 3 or more payments. Repeat use is the signal to watch; directory listing alone has not produced it.",
+                  "Not in the CDP Bazaar snapshot. CDP lists a route after the CDP facilitator settles a payment for it; most sampled agent payments on Base are settled by CDP.",
+                  "Not in the PayAI directory snapshot. PayAI lists a route after it settles one payment for it (a self-payment works).",
+                  "All revenue in the window came from payers labelled probe, self or fleet."
+                ],
+                "payers": [
+                  {
+                    "address": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+                    "label": "self",
+                    "reason": "payer is the payTo",
+                    "tx": 3,
+                    "usd": 0.013,
+                    "days": 1,
+                    "first_day": "2026-11-24",
+                    "last_day": "2026-11-24",
+                    "funders": [],
+                    "facilitator": "payai"
+                  },
+                  {
+                    "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+                    "label": "probe",
+                    "reason": "probe list (spray4)",
+                    "tx": 2,
+                    "usd": 0.006,
+                    "days": 1,
+                    "first_day": "2026-11-24",
+                    "last_day": "2026-11-24",
+                    "funders": [],
+                    "facilitator": "payai"
+                  }
+                ]
+              }
+            }
+          },
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "http"
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "GET"
+                    ]
+                  },
+                  "queryParams": {
+                    "type": "object",
+                    "properties": {
+                      "payTo": {
+                        "type": "string",
+                        "pattern": "^0x[0-9a-fA-F]{40}$",
+                        "description": "The payTo address in your x402 accepts (Base)",
+                        "examples": [
+                          "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "payTo"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "type",
+                  "method"
+                ],
+                "additionalProperties": false
+              },
+              "output": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "example": {
+                    "type": "object",
+                    "properties": {
+                      "pay_to": {
+                        "type": "string"
+                      },
+                      "generated_at": {
+                        "type": "string"
+                      },
+                      "window": {
+                        "type": "object"
+                      },
+                      "payer_count": {
+                        "type": "integer"
+                      },
+                      "by_label": {
+                        "type": "object",
+                        "description": "payer count per label"
+                      },
+                      "probe_share": {
+                        "type": "object",
+                        "properties": {
+                          "payers": {
+                            "type": "number"
+                          },
+                          "usd": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "totals": {
+                        "type": "object",
+                        "properties": {
+                          "payers": {
+                            "type": "integer"
+                          },
+                          "tx": {
+                            "type": "integer"
+                          },
+                          "usd": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "by_label_detail": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "payers": {
+                              "type": "integer"
+                            },
+                            "tx": {
+                              "type": "integer"
+                            },
+                            "usd": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      },
+                      "listing": {
+                        "type": "object",
+                        "properties": {
+                          "cdp": {
+                            "type": "boolean"
+                          },
+                          "payai": {
+                            "type": "boolean"
+                          },
+                          "hosts": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "facilitators": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "integer"
+                        }
+                      },
+                      "suggestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "payers": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "address": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string",
+                              "enum": [
+                                "probe",
+                                "self",
+                                "fleet",
+                                "real",
+                                "once"
+                              ]
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "tx": {
+                              "type": "integer"
+                            },
+                            "usd": {
+                              "type": "number"
+                            },
+                            "days": {
+                              "type": "integer"
+                            },
+                            "funders": {
+                              "type": "array",
+                              "items": {
+                                "type": "object"
+                              }
+                            },
+                            "facilitator": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "pay_to",
+                      "payers",
+                      "by_label",
+                      "suggestions"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "input"
+            ]
+          }
+        }
+      }
+    },
+    "body": {
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "50000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "resource": {
+        "url": "http://localhost/x402/payer-audit?payTo=0x4348df1befaffcba248b5118b1b782b1b2bded14",
+        "description": "Who really pays your x402 endpoint. For a Base payTo address: every USDC payer in the last 30 days labelled probe (directory probe or test-buy wallet, 164-wallet list), self (funded by the payTo or a wallet it funded), fleet (one funder sent the same amount to 3+ payers), real (3+ payments on 2+ days) or once; with tx count, USD, funders, settling facilitator, CDP/PayAI listing status and suggestions. A payTo not in the data set is a free 404. Data rebuilt offline from Base RPC. Labels are rule-based classifications of public transfers, not allegations; they can be wrong (refunds, promotional credits).",
+        "mimeType": "application/json",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ],
+        "iconUrl": "https://api.example.test/icon.png"
+      },
+      "error": "Payment required",
+      "price": "$0.05",
+      "currency": "USDC",
+      "network": "eip155:8453",
+      "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+      "docs": "https://api.example.test/openapi.json",
+      "llms_txt": "https://api.example.test/llms.txt",
+      "install": "npx agentcash add https://api.example.test",
+      "example": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.example.test/x402/payer-audit?payTo=0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2"
+        },
+        "response": {
+          "pay_to": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+          "generated_at": "2026-11-25T04:02:30.063Z",
+          "window": {
+            "from_block": 53098985,
+            "to_block": 61944702,
+            "from": "2026-10-26T04:01:57.000Z",
+            "to": "2026-11-25T04:01:56.000Z"
+          },
+          "payer_count": 2,
+          "by_label": {
+            "probe": 1,
+            "self": 1,
+            "fleet": 0,
+            "real": 0,
+            "once": 0
+          },
+          "probe_share": {
+            "payers": 0.5,
+            "usd": 0.316
+          },
+          "disclaimer": "Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues",
+          "totals": {
+            "payers": 2,
+            "tx": 5,
+            "usd": 0.019
+          },
+          "by_label_detail": {
+            "probe": {
+              "payers": 1,
+              "tx": 2,
+              "usd": 0.006
+            },
+            "self": {
+              "payers": 1,
+              "tx": 3,
+              "usd": 0.013
+            },
+            "fleet": {
+              "payers": 0,
+              "tx": 0,
+              "usd": 0
+            },
+            "real": {
+              "payers": 0,
+              "tx": 0,
+              "usd": 0
+            },
+            "once": {
+              "payers": 0,
+              "tx": 0,
+              "usd": 0
+            }
+          },
+          "large_transfers": {
+            "tx": 0,
+            "usd": 0
+          },
+          "listing": {
+            "snapshot": "2026-11-24",
+            "cdp": false,
+            "payai": false,
+            "hosts": [],
+            "resources": 0
+          },
+          "facilitators": {
+            "payai": 2
+          },
+          "probe_list": {
+            "wallets": 164,
+            "source": "x402-content-site data/payer-audit/probe-wallets.json"
+          },
+          "suggestions": [
+            "1 of 2 payers are directory probes and test-buy wallets ($0.006). Do not count them as users; they pay once per new route to check delivery.",
+            "1 payers ($0.01) are labelled self: they received USDC from this payTo or from a wallet it funded. If those transfers were not refunds or credits to customers, leave these payers out of revenue and listing metrics.",
+            "No payer paid on 2 or more days with 3 or more payments. Repeat use is the signal to watch; directory listing alone has not produced it.",
+            "Not in the CDP Bazaar snapshot. CDP lists a route after the CDP facilitator settles a payment for it; most sampled agent payments on Base are settled by CDP.",
+            "Not in the PayAI directory snapshot. PayAI lists a route after it settles one payment for it (a self-payment works).",
+            "All revenue in the window came from payers labelled probe, self or fleet."
+          ],
+          "payers": [
+            {
+              "address": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+              "label": "self",
+              "reason": "payer is the payTo",
+              "tx": 3,
+              "usd": 0.013,
+              "days": 1,
+              "first_day": "2026-11-24",
+              "last_day": "2026-11-24",
+              "funders": [],
+              "facilitator": "payai"
+            },
+            {
+              "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+              "label": "probe",
+              "reason": "probe list (spray4)",
+              "tx": 2,
+              "usd": 0.006,
+              "days": 1,
+              "first_day": "2026-11-24",
+              "last_day": "2026-11-24",
+              "funders": [],
+              "facilitator": "payai"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "GET /reports/x402-real-payers.json": {
+    "status": 402,
+    "paymentRequired": {
+      "x402Version": 2,
+      "error": "Payment required",
+      "resource": {
+        "url": "http://localhost/reports/x402-real-payers.json",
+        "description": "x402 payment market report as JSON (Base USDC, 30 days to 2026-11-25): headline counts of probe, fleet and real payers, categories independent operators pay for, top 20 repeat payers, seller case studies with funding trails, facilitator shares, labelling rules and the 164-wallet probe list.",
+        "mimeType": "application/json",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ],
+        "iconUrl": "https://api.example.test/icon.png"
+      },
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "500000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "extensions": {
+        "bazaar": {
+          "info": {
+            "input": {
+              "type": "http",
+              "queryParams": {},
+              "method": "GET"
+            },
+            "output": {
+              "type": "json",
+              "example": {
+                "title": "Who really pays for x402: 30 days of Base USDC payments",
+                "version": "2026-11-25",
+                "headline": [
+                  {
+                    "metric": "transfers of $2 or less",
+                    "value": 930693
+                  },
+                  {
+                    "metric": "distinct paying addresses",
+                    "value": 22916
+                  },
+                  {
+                    "metric": "paying addresses with exactly 1 payment",
+                    "value": 15045
+                  }
+                ],
+                "key_findings": [
+                  "Most sellers' payment counts are probes: 2,353 of 2,745 paid payTo addresses had more probe payers than other payers."
+                ],
+                "probe_wallets": [
+                  {
+                    "address": "0x24e6a249111ae0cc8ea09f487a114f7e7ef15e12",
+                    "group": "agent402",
+                    "label": "test-agentcore"
+                  }
+                ]
+              }
+            }
+          },
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "http"
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "GET"
+                    ]
+                  },
+                  "queryParams": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "type",
+                  "method"
+                ],
+                "additionalProperties": false
+              },
+              "output": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "example": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "string"
+                      },
+                      "window": {
+                        "type": "object"
+                      },
+                      "scope": {
+                        "type": "string"
+                      },
+                      "headline": {
+                        "type": "array"
+                      },
+                      "key_findings": {
+                        "type": "array"
+                      },
+                      "categories": {
+                        "type": "object"
+                      },
+                      "top_payers": {
+                        "type": "object"
+                      },
+                      "sellers": {
+                        "type": "object"
+                      },
+                      "seller_tools": {
+                        "type": "object"
+                      },
+                      "facilitators": {
+                        "type": "object"
+                      },
+                      "method": {
+                        "type": "object"
+                      },
+                      "probe_wallets": {
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "headline",
+                      "probe_wallets"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "input"
+            ]
+          }
+        }
+      }
+    },
+    "body": {
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "500000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "resource": {
+        "url": "http://localhost/reports/x402-real-payers.json",
+        "description": "x402 payment market report as JSON (Base USDC, 30 days to 2026-11-25): headline counts of probe, fleet and real payers, categories independent operators pay for, top 20 repeat payers, seller case studies with funding trails, facilitator shares, labelling rules and the 164-wallet probe list.",
+        "mimeType": "application/json",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ],
+        "iconUrl": "https://api.example.test/icon.png"
+      },
+      "error": "Payment required",
+      "price": "$0.5",
+      "currency": "USDC",
+      "network": "eip155:8453",
+      "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+      "docs": "https://api.example.test/openapi.json",
+      "llms_txt": "https://api.example.test/llms.txt",
+      "install": "npx agentcash add https://api.example.test",
+      "example": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.example.test/reports/x402-real-payers.json"
+        },
+        "response": {
+          "title": "Who really pays for x402: 30 days of Base USDC payments",
+          "version": "2026-11-25",
+          "headline": [
+            {
+              "metric": "transfers of $2 or less",
+              "value": 930693
+            },
+            {
+              "metric": "distinct paying addresses",
+              "value": 22916
+            },
+            {
+              "metric": "paying addresses with exactly 1 payment",
+              "value": 15045
+            }
+          ],
+          "key_findings": [
+            "Most sellers' payment counts are probes: 2,353 of 2,745 paid payTo addresses had more probe payers than other payers."
+          ],
+          "probe_wallets": [
+            {
+              "address": "0x24e6a249111ae0cc8ea09f487a114f7e7ef15e12",
+              "group": "agent402",
+              "label": "test-agentcore"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "GET /reports/x402-real-payers/full": {
+    "status": 402,
+    "paymentRequired": {
+      "x402Version": 2,
+      "error": "Payment required",
+      "resource": {
+        "url": "http://localhost/reports/x402-real-payers/full",
+        "description": "Research report on x402 payments on Base, 2026-10-26 to 2026-11-25: of 22,916 paying addresses, how many are directory probes, test-buy wallets, seller self-funding and fleets, and the 779 independent operators that are left; what they buy, which facilitators settle, case studies of sellers with their own users, and the 164-wallet probe list",
+        "mimeType": "text/html",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ]
+      },
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "2000000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ]
+    },
+    "body": {
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "2000000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "resource": {
+        "url": "http://localhost/reports/x402-real-payers/full",
+        "description": "Research report on x402 payments on Base, 2026-10-26 to 2026-11-25: of 22,916 paying addresses, how many are directory probes, test-buy wallets, seller self-funding and fleets, and the 779 independent operators that are left; what they buy, which facilitators settle, case studies of sellers with their own users, and the 164-wallet probe list",
+        "mimeType": "text/html",
+        "serviceName": "x402 Seller Payer Audit",
+        "tags": [
+          "x402",
+          "analytics",
+          "payments",
+          "base",
+          "usdc",
+          "seller-tools"
+        ]
+      },
+      "error": "Payment required"
+    },
+    "browser": {
+      "status": 402,
+      "contentType": "text/html; charset=UTF-8",
+      "sha256": "d8655e75b73042cd444c5e64f98189ee7702ae93a20fe224b3c644bbb0068a52"
+    }
+  },
+  "GET /x402/payer-audit/preview?payTo=0x4348df1befaffcba248b5118b1b782b1b2bded14": {
+    "status": 200,
+    "contentType": "application/json",
+    "text": "{\"pay_to\":\"0x4348df1befaffcba248b5118b1b782b1b2bded14\",\"generated_at\":\"2026-11-25T03:27:56.796Z\",\"window\":{\"from_block\":53078908,\"to_block\":61743941,\"from\":\"2026-10-25T16:52:43.000Z\",\"to\":\"2026-11-24T16:52:43.000Z\"},\"payer_count\":18,\"by_label\":{\"probe\":0,\"self\":10,\"fleet\":0,\"real\":1,\"once\":7},\"probe_share\":{\"payers\":0,\"usd\":0},\"full_report\":\"GET /x402/payer-audit?payTo=... (x402) lists every payer with label, tx, USD, funders, facilitator and suggestions\",\"disclaimer\":\"Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues\"}"
+  }
+}
