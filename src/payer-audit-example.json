@@ -1,0 +1,107 @@
+{
+ "pay_to": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+ "generated_at": "2026-11-25T04:02:30.063Z",
+ "window": {
+  "from_block": 53098985,
+  "to_block": 61944702,
+  "from": "2026-10-26T04:01:57.000Z",
+  "to": "2026-11-25T04:01:56.000Z"
+ },
+ "payer_count": 2,
+ "by_label": {
+  "probe": 1,
+  "self": 1,
+  "fleet": 0,
+  "real": 0,
+  "once": 0
+ },
+ "probe_share": {
+  "payers": 0.5,
+  "usd": 0.316
+ },
+ "disclaimer": "Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues",
+ "totals": {
+  "payers": 2,
+  "tx": 5,
+  "usd": 0.019
+ },
+ "by_label_detail": {
+  "probe": {
+   "payers": 1,
+   "tx": 2,
+   "usd": 0.006
+  },
+  "self": {
+   "payers": 1,
+   "tx": 3,
+   "usd": 0.013
+  },
+  "fleet": {
+   "payers": 0,
+   "tx": 0,
+   "usd": 0
+  },
+  "real": {
+   "payers": 0,
+   "tx": 0,
+   "usd": 0
+  },
+  "once": {
+   "payers": 0,
+   "tx": 0,
+   "usd": 0
+  }
+ },
+ "large_transfers": {
+  "tx": 0,
+  "usd": 0
+ },
+ "listing": {
+  "snapshot": "2026-11-24",
+  "cdp": false,
+  "payai": false,
+  "hosts": [],
+  "resources": 0
+ },
+ "facilitators": {
+  "payai": 2
+ },
+ "probe_list": {
+  "wallets": 164,
+  "source": "x402-content-site data/payer-audit/probe-wallets.json"
+ },
+ "suggestions": [
+  "1 of 2 payers are directory probes and test-buy wallets ($0.006). Do not count them as users; they pay once per new route to check delivery.",
+  "1 payers ($0.01) are labelled self: they received USDC from this payTo or from a wallet it funded. If those transfers were not refunds or credits to customers, leave these payers out of revenue and listing metrics.",
+  "No payer paid on 2 or more days with 3 or more payments. Repeat use is the signal to watch; directory listing alone has not produced it.",
+  "Not in the CDP Bazaar snapshot. CDP lists a route after the CDP facilitator settles a payment for it; most sampled agent payments on Base are settled by CDP.",
+  "Not in the PayAI directory snapshot. PayAI lists a route after it settles one payment for it (a self-payment works).",
+  "All revenue in the window came from payers labelled probe, self or fleet."
+ ],
+ "payers": [
+  {
+   "address": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+   "label": "self",
+   "reason": "payer is the payTo",
+   "tx": 3,
+   "usd": 0.013,
+   "days": 1,
+   "first_day": "2026-11-24",
+   "last_day": "2026-11-24",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+   "label": "probe",
+   "reason": "probe list (spray4)",
+   "tx": 2,
+   "usd": 0.006,
+   "days": 1,
+   "first_day": "2026-11-24",
+   "last_day": "2026-11-24",
+   "funders": [],
+   "facilitator": "payai"
+  }
+ ]
+}

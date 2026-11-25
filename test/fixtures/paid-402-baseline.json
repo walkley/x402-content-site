@@ -1,0 +1,3531 @@
+{
+ "GET /cn/workday": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/cn/workday",
+    "description": "Is a given date a working day in mainland China? Applies the State Council (国务院) holiday notice: public holiday periods, weekend makeup workdays (调休补班) and ordinary weekends. Returns holiday name and source link.",
+    "mimeType": "application/json",
+    "serviceName": "China Workday Calendar",
+    "tags": [
+     "calendar",
+     "holidays",
+     "china",
+     "business-days",
+     "workday"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "date": "2026-02-14"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "date": "2026-02-14",
+        "weekday": 6,
+        "is_workday": true,
+        "is_public_holiday": false,
+        "is_makeup_workday": true,
+        "holiday_name": null,
+        "kind": "makeup_workday",
+        "source_url": "https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm",
+        "data_updated": "2026-11-05"
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Calendar date in China (YYYY-MM-DD), 2020-01-01..2027-12-31"
+           }
+          },
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+           },
+           "weekday": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7,
+            "description": "ISO weekday, 1 = Monday, 7 = Sunday"
+           },
+           "is_workday": {
+            "type": "boolean",
+            "description": "true for an ordinary weekday or a makeup workday (调休补班)"
+           },
+           "is_public_holiday": {
+            "type": "boolean",
+            "description": "true inside an official holiday period (放假) from the State Council notice"
+           },
+           "is_makeup_workday": {
+            "type": "boolean",
+            "description": "true for a weekend day officially designated as a working day (调休上班)"
+           },
+           "holiday_name": {
+            "type": [
+             "string",
+             "null"
+            ],
+            "description": "Holiday name as written in the notice, e.g. 春节"
+           },
+           "kind": {
+            "type": "string",
+            "enum": [
+             "workday",
+             "weekend",
+             "public_holiday",
+             "makeup_workday"
+            ]
+           },
+           "source_url": {
+            "type": "string",
+            "description": "gov.cn notice the answer is based on"
+           },
+           "data_updated": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Publication date of the newest notice in the dataset"
+           }
+          },
+          "required": [
+           "date",
+           "weekday",
+           "is_workday",
+           "is_public_holiday",
+           "is_makeup_workday",
+           "holiday_name",
+           "kind",
+           "source_url",
+           "data_updated"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/cn/workday",
+    "description": "Is a given date a working day in mainland China? Applies the State Council (国务院) holiday notice: public holiday periods, weekend makeup workdays (调休补班) and ordinary weekends. Returns holiday name and source link.",
+    "mimeType": "application/json",
+    "serviceName": "China Workday Calendar",
+    "tags": [
+     "calendar",
+     "holidays",
+     "china",
+     "business-days",
+     "workday"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.003",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/cn/workday?date=2026-02-14"
+    },
+    "response": {
+     "date": "2026-02-14",
+     "weekday": 6,
+     "is_workday": true,
+     "is_public_holiday": false,
+     "is_makeup_workday": true,
+     "holiday_name": null,
+     "kind": "makeup_workday",
+     "source_url": "https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm",
+     "data_updated": "2026-11-05"
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "GET /cn/business-days": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/cn/business-days",
+    "description": "Count and list mainland China working days between two dates (inclusive, up to 366 days, may cross years), honouring official holidays and weekend makeup workdays (调休补班) from State Council notices.",
+    "mimeType": "application/json",
+    "serviceName": "China Workday Calendar",
+    "tags": [
+     "calendar",
+     "holidays",
+     "china",
+     "business-days",
+     "workday"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "from": "2026-09-28",
+        "to": "2026-10-11"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "from": "2026-09-28",
+        "to": "2026-10-11",
+        "calendar_days": 14,
+        "workday_count": 6,
+        "workdays": [
+         "2026-09-28",
+         "2026-09-29",
+         "2026-09-30",
+         "2026-10-08",
+         "2026-10-09",
+         "2026-10-10"
+        ],
+        "data_updated": "2026-11-05"
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "First date, inclusive (YYYY-MM-DD)"
+           },
+           "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Last date, inclusive (YYYY-MM-DD); at most 366 days after counting both ends"
+           }
+          },
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+           },
+           "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+           },
+           "calendar_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 366
+           },
+           "workday_count": {
+            "type": "integer",
+            "minimum": 0
+           },
+           "workdays": {
+            "type": "array",
+            "items": {
+             "type": "string",
+             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "description": "Every working day in the range, ascending"
+           },
+           "data_updated": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+           }
+          },
+          "required": [
+           "from",
+           "to",
+           "calendar_days",
+           "workday_count",
+           "workdays",
+           "data_updated"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/cn/business-days",
+    "description": "Count and list mainland China working days between two dates (inclusive, up to 366 days, may cross years), honouring official holidays and weekend makeup workdays (调休补班) from State Council notices.",
+    "mimeType": "application/json",
+    "serviceName": "China Workday Calendar",
+    "tags": [
+     "calendar",
+     "holidays",
+     "china",
+     "business-days",
+     "workday"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.005",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/cn/business-days?from=2026-09-28&to=2026-10-11"
+    },
+    "response": {
+     "from": "2026-09-28",
+     "to": "2026-10-11",
+     "calendar_days": 14,
+     "workday_count": 6,
+     "workdays": [
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30",
+      "2026-10-08",
+      "2026-10-09",
+      "2026-10-10"
+     ],
+     "data_updated": "2026-11-05"
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "GET /deps/advisories": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/deps/advisories",
+    "description": "Is this package version safe to install? Dependency check for install safety before npm install, pip install or cargo add, for one exact npm, PyPI, Go, crates.io or Maven version. Returns vulnerable true/false and the OSV.dev advisories for that version (CVE, GHSA, PYSEC, GO and RUSTSEC vulnerabilities and OpenSSF malicious-package MAL- entries) with CVSS, affected ranges, fixed versions and links. Package names are case-sensitive. Data fetched live from OSV.dev (cached up to 1 hour).",
+    "mimeType": "application/json",
+    "serviceName": "Package Vulnerability Advisories",
+    "tags": [
+     "install safety",
+     "dependency check",
+     "package vulnerability",
+     "cve",
+     "osv"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "ecosystem": "npm",
+        "name": "lodash",
+        "version": "4.17.20"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "ecosystem": "npm",
+        "name": "lodash",
+        "version": "4.17.20",
+        "vulnerable": true,
+        "advisory_count": 1,
+        "advisories": [
+         {
+          "id": "GHSA-35jh-r3h4-6jhm",
+          "aliases": [
+           "CVE-2021-23337"
+          ],
+          "summary": "Command Injection in lodash",
+          "severity": {
+           "level": "HIGH",
+           "cvss": [
+            {
+             "type": "CVSS_V3",
+             "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+            }
+           ]
+          },
+          "affected": [
+           {
+            "package": "lodash",
+            "ranges": [
+             {
+              "type": "SEMVER",
+              "introduced": "0",
+              "fixed": "4.17.21"
+             }
+            ]
+           }
+          ],
+          "fixed_versions": [
+           "4.17.21"
+          ],
+          "published": "2021-05-06T16:05:51Z",
+          "modified": "2026-10-17T02:55:38.085813876Z",
+          "references": [
+           "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+           "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+           "https://www.oracle.com/security-alerts/cpuoct2021.html"
+          ],
+          "url": "https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm",
+          "license": "CC-BY-4.0",
+          "source_database": "GitHub Advisory Database"
+         }
+        ],
+        "truncated": false,
+        "data_fetched_at": "2026-11-24T08:00:00.000Z",
+        "queried_at": "2026-11-24T08:00:00.000Z",
+        "source": "OSV.dev (https://osv.dev). Excerpted and modified: details text omitted, affected ranges restructured and filtered to the queried package. Per-advisory license in `license`."
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "ecosystem": {
+            "type": "string",
+            "enum": [
+             "npm",
+             "PyPI",
+             "Go",
+             "crates.io",
+             "Maven"
+            ],
+            "description": "Package ecosystem (case-insensitive on input)",
+            "examples": [
+             "npm"
+            ]
+           },
+           "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 214,
+            "description": "Package name exactly as published; matching is case-sensitive for npm (lodash, not Lodash; legacy names such as JSONStream keep their case). Maven uses groupId:artifactId, Go the module path. PyPI names are normalised.",
+            "examples": [
+             "lodash"
+            ]
+           },
+           "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Exact version, e.g. 4.17.20",
+            "examples": [
+             "4.17.20"
+            ]
+           }
+          },
+          "required": [
+           "ecosystem",
+           "name",
+           "version"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "ecosystem": {
+            "type": "string"
+           },
+           "name": {
+            "type": "string"
+           },
+           "version": {
+            "type": "string"
+           },
+           "vulnerable": {
+            "type": "boolean",
+            "description": "true when at least one advisory affects this exact version"
+           },
+           "advisory_count": {
+            "type": "integer",
+            "minimum": 0
+           },
+           "advisories": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "id": {
+               "type": "string"
+              },
+              "aliases": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               },
+               "description": "Usually CVE ids"
+              },
+              "summary": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "severity": {
+               "type": "object",
+               "properties": {
+                "level": {
+                 "type": [
+                  "string",
+                  "null"
+                 ],
+                 "description": "Source rating such as LOW, MODERATE, HIGH, CRITICAL"
+                },
+                "cvss": {
+                 "type": "array",
+                 "items": {
+                  "type": "object",
+                  "properties": {
+                   "type": {
+                    "type": "string"
+                   },
+                   "vector": {
+                    "type": "string"
+                   }
+                  }
+                 }
+                }
+               }
+              },
+              "affected": {
+               "type": "array",
+               "items": {
+                "type": "object",
+                "properties": {
+                 "package": {
+                  "type": "string"
+                 },
+                 "ranges": {
+                  "type": "array",
+                  "items": {
+                   "type": "object",
+                   "properties": {
+                    "type": {
+                     "type": "string"
+                    },
+                    "introduced": {
+                     "type": "string"
+                    },
+                    "fixed": {
+                     "type": "string"
+                    },
+                    "last_affected": {
+                     "type": "string"
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              },
+              "fixed_versions": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               }
+              },
+              "published": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "modified": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "references": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               }
+              },
+              "url": {
+               "type": "string",
+               "description": "osv.dev record page"
+              },
+              "source_database": {
+               "type": "string"
+              },
+              "license": {
+               "type": "string",
+               "description": "License of the source record, e.g. CC-BY-4.0"
+              }
+             },
+             "required": [
+              "id",
+              "aliases",
+              "summary",
+              "severity",
+              "affected",
+              "fixed_versions",
+              "url",
+              "license"
+             ]
+            }
+           },
+           "truncated": {
+            "type": "boolean",
+            "description": "true if the upstream result had more pages than were fetched"
+           },
+           "data_fetched_at": {
+            "type": "string",
+            "description": "When the data was fetched from OSV.dev (ISO 8601)"
+           },
+           "queried_at": {
+            "type": "string",
+            "description": "When this request was answered (ISO 8601)"
+           },
+           "source": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "ecosystem",
+           "name",
+           "version",
+           "vulnerable",
+           "advisory_count",
+           "advisories",
+           "truncated",
+           "data_fetched_at",
+           "queried_at",
+           "source"
+          ]
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/deps/advisories",
+    "description": "Is this package version safe to install? Dependency check for install safety before npm install, pip install or cargo add, for one exact npm, PyPI, Go, crates.io or Maven version. Returns vulnerable true/false and the OSV.dev advisories for that version (CVE, GHSA, PYSEC, GO and RUSTSEC vulnerabilities and OpenSSF malicious-package MAL- entries) with CVSS, affected ranges, fixed versions and links. Package names are case-sensitive. Data fetched live from OSV.dev (cached up to 1 hour).",
+    "mimeType": "application/json",
+    "serviceName": "Package Vulnerability Advisories",
+    "tags": [
+     "install safety",
+     "dependency check",
+     "package vulnerability",
+     "cve",
+     "osv"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.005",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20"
+    },
+    "response": {
+     "ecosystem": "npm",
+     "name": "lodash",
+     "version": "4.17.20",
+     "vulnerable": true,
+     "advisory_count": 1,
+     "advisories": [
+      {
+       "id": "GHSA-35jh-r3h4-6jhm",
+       "aliases": [
+        "CVE-2021-23337"
+       ],
+       "summary": "Command Injection in lodash",
+       "severity": {
+        "level": "HIGH",
+        "cvss": [
+         {
+          "type": "CVSS_V3",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+         }
+        ]
+       },
+       "affected": [
+        {
+         "package": "lodash",
+         "ranges": [
+          {
+           "type": "SEMVER",
+           "introduced": "0",
+           "fixed": "4.17.21"
+          }
+         ]
+        }
+       ],
+       "fixed_versions": [
+        "4.17.21"
+       ],
+       "published": "2021-05-06T16:05:51Z",
+       "modified": "2026-10-17T02:55:38.085813876Z",
+       "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+        "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+        "https://www.oracle.com/security-alerts/cpuoct2021.html"
+       ],
+       "url": "https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm",
+       "license": "CC-BY-4.0",
+       "source_database": "GitHub Advisory Database"
+      }
+     ],
+     "truncated": false,
+     "data_fetched_at": "2026-11-24T08:00:00.000Z",
+     "queried_at": "2026-11-24T08:00:00.000Z",
+     "source": "OSV.dev (https://osv.dev). Excerpted and modified: details text omitted, affected ranges restructured and filtered to the queried package. Per-advisory license in `license`."
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "POST /deps/advisories/batch": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/deps/advisories/batch",
+    "description": "Are these package versions safe to install? Batch dependency check of up to 50 npm, PyPI, Go, crates.io or Maven package versions in one call, e.g. a whole lockfile before install or upgrade. $0.02 per call, $0.0004 per package. Same fields as GET /deps/advisories for each package (CVE and OSV vulnerabilities, malicious-package MAL- entries), in request order.",
+    "mimeType": "application/json",
+    "serviceName": "Package Vulnerability Advisories",
+    "tags": [
+     "install safety",
+     "dependency check",
+     "package vulnerability",
+     "cve",
+     "osv"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "20000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "bodyType": "json",
+       "body": {
+        "packages": [
+         {
+          "ecosystem": "npm",
+          "name": "lodash",
+          "version": "4.17.20"
+         }
+        ]
+       },
+       "method": "POST"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "count": 1,
+        "vulnerable_count": 1,
+        "results": [
+         {
+          "ecosystem": "npm",
+          "name": "lodash",
+          "version": "4.17.20",
+          "vulnerable": true,
+          "advisory_count": 1,
+          "advisories": [
+           {
+            "id": "GHSA-35jh-r3h4-6jhm",
+            "aliases": [
+             "CVE-2021-23337"
+            ],
+            "summary": "Command Injection in lodash",
+            "severity": {
+             "level": "HIGH",
+             "cvss": [
+              {
+               "type": "CVSS_V3",
+               "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+              }
+             ]
+            },
+            "affected": [
+             {
+              "package": "lodash",
+              "ranges": [
+               {
+                "type": "SEMVER",
+                "introduced": "0",
+                "fixed": "4.17.21"
+               }
+              ]
+             }
+            ],
+            "fixed_versions": [
+             "4.17.21"
+            ],
+            "published": "2021-05-06T16:05:51Z",
+            "modified": "2026-10-17T02:55:38.085813876Z",
+            "references": [
+             "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+             "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+             "https://www.oracle.com/security-alerts/cpuoct2021.html"
+            ],
+            "url": "https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm",
+            "license": "CC-BY-4.0",
+            "source_database": "GitHub Advisory Database"
+           }
+          ],
+          "truncated": false,
+          "data_fetched_at": "2026-11-24T08:00:00.000Z",
+          "queried_at": "2026-11-24T08:00:00.000Z",
+          "source": "OSV.dev (https://osv.dev). Excerpted and modified: details text omitted, affected ranges restructured and filtered to the queried package. Per-advisory license in `license`."
+         }
+        ]
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "POST"
+          ]
+         },
+         "bodyType": {
+          "type": "string",
+          "enum": [
+           "json",
+           "form-data",
+           "text"
+          ]
+         },
+         "body": {
+          "type": "object",
+          "properties": {
+           "packages": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+             "type": "object",
+             "properties": {
+              "ecosystem": {
+               "type": "string",
+               "enum": [
+                "npm",
+                "PyPI",
+                "Go",
+                "crates.io",
+                "Maven"
+               ],
+               "description": "Package ecosystem (case-insensitive on input)",
+               "examples": [
+                "npm"
+               ]
+              },
+              "name": {
+               "type": "string",
+               "minLength": 1,
+               "maxLength": 214,
+               "description": "Package name exactly as published; matching is case-sensitive for npm (lodash, not Lodash; legacy names such as JSONStream keep their case). Maven uses groupId:artifactId, Go the module path. PyPI names are normalised.",
+               "examples": [
+                "lodash"
+               ]
+              },
+              "version": {
+               "type": "string",
+               "minLength": 1,
+               "maxLength": 128,
+               "description": "Exact version, e.g. 4.17.20",
+               "examples": [
+                "4.17.20"
+               ]
+              }
+             },
+             "required": [
+              "ecosystem",
+              "name",
+              "version"
+             ],
+             "additionalProperties": false
+            }
+           }
+          },
+          "required": [
+           "packages"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method",
+         "bodyType",
+         "body"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "count": {
+            "type": "integer"
+           },
+           "vulnerable_count": {
+            "type": "integer"
+           },
+           "results": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "ecosystem": {
+               "type": "string"
+              },
+              "name": {
+               "type": "string"
+              },
+              "version": {
+               "type": "string"
+              },
+              "vulnerable": {
+               "type": "boolean",
+               "description": "true when at least one advisory affects this exact version"
+              },
+              "advisory_count": {
+               "type": "integer",
+               "minimum": 0
+              },
+              "advisories": {
+               "type": "array",
+               "items": {
+                "type": "object",
+                "properties": {
+                 "id": {
+                  "type": "string"
+                 },
+                 "aliases": {
+                  "type": "array",
+                  "items": {
+                   "type": "string"
+                  },
+                  "description": "Usually CVE ids"
+                 },
+                 "summary": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 },
+                 "severity": {
+                  "type": "object",
+                  "properties": {
+                   "level": {
+                    "type": [
+                     "string",
+                     "null"
+                    ],
+                    "description": "Source rating such as LOW, MODERATE, HIGH, CRITICAL"
+                   },
+                   "cvss": {
+                    "type": "array",
+                    "items": {
+                     "type": "object",
+                     "properties": {
+                      "type": {
+                       "type": "string"
+                      },
+                      "vector": {
+                       "type": "string"
+                      }
+                     }
+                    }
+                   }
+                  }
+                 },
+                 "affected": {
+                  "type": "array",
+                  "items": {
+                   "type": "object",
+                   "properties": {
+                    "package": {
+                     "type": "string"
+                    },
+                    "ranges": {
+                     "type": "array",
+                     "items": {
+                      "type": "object",
+                      "properties": {
+                       "type": {
+                        "type": "string"
+                       },
+                       "introduced": {
+                        "type": "string"
+                       },
+                       "fixed": {
+                        "type": "string"
+                       },
+                       "last_affected": {
+                        "type": "string"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 },
+                 "fixed_versions": {
+                  "type": "array",
+                  "items": {
+                   "type": "string"
+                  }
+                 },
+                 "published": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 },
+                 "modified": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 },
+                 "references": {
+                  "type": "array",
+                  "items": {
+                   "type": "string"
+                  }
+                 },
+                 "url": {
+                  "type": "string",
+                  "description": "osv.dev record page"
+                 },
+                 "source_database": {
+                  "type": "string"
+                 },
+                 "license": {
+                  "type": "string",
+                  "description": "License of the source record, e.g. CC-BY-4.0"
+                 }
+                },
+                "required": [
+                 "id",
+                 "aliases",
+                 "summary",
+                 "severity",
+                 "affected",
+                 "fixed_versions",
+                 "url",
+                 "license"
+                ]
+               }
+              },
+              "truncated": {
+               "type": "boolean",
+               "description": "true if the upstream result had more pages than were fetched"
+              },
+              "data_fetched_at": {
+               "type": "string",
+               "description": "When the data was fetched from OSV.dev (ISO 8601)"
+              },
+              "queried_at": {
+               "type": "string",
+               "description": "When this request was answered (ISO 8601)"
+              },
+              "source": {
+               "type": "string"
+              }
+             },
+             "required": [
+              "ecosystem",
+              "name",
+              "version",
+              "vulnerable",
+              "advisory_count",
+              "advisories",
+              "truncated",
+              "data_fetched_at",
+              "queried_at",
+              "source"
+             ]
+            }
+           }
+          },
+          "required": [
+           "count",
+           "vulnerable_count",
+           "results"
+          ]
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "20000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/deps/advisories/batch",
+    "description": "Are these package versions safe to install? Batch dependency check of up to 50 npm, PyPI, Go, crates.io or Maven package versions in one call, e.g. a whole lockfile before install or upgrade. $0.02 per call, $0.0004 per package. Same fields as GET /deps/advisories for each package (CVE and OSV vulnerabilities, malicious-package MAL- entries), in request order.",
+    "mimeType": "application/json",
+    "serviceName": "Package Vulnerability Advisories",
+    "tags": [
+     "install safety",
+     "dependency check",
+     "package vulnerability",
+     "cve",
+     "osv"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.02",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "POST",
+     "url": "https://api.example.test/deps/advisories/batch",
+     "body": {
+      "packages": [
+       {
+        "ecosystem": "npm",
+        "name": "lodash",
+        "version": "4.17.20"
+       }
+      ]
+     }
+    },
+    "response": {
+     "count": 1,
+     "vulnerable_count": 1,
+     "results": [
+      {
+       "ecosystem": "npm",
+       "name": "lodash",
+       "version": "4.17.20",
+       "vulnerable": true,
+       "advisory_count": 1,
+       "advisories": [
+        {
+         "id": "GHSA-35jh-r3h4-6jhm",
+         "aliases": [
+          "CVE-2021-23337"
+         ],
+         "summary": "Command Injection in lodash",
+         "severity": {
+          "level": "HIGH",
+          "cvss": [
+           {
+            "type": "CVSS_V3",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+           }
+          ]
+         },
+         "affected": [
+          {
+           "package": "lodash",
+           "ranges": [
+            {
+             "type": "SEMVER",
+             "introduced": "0",
+             "fixed": "4.17.21"
+            }
+           ]
+          }
+         ],
+         "fixed_versions": [
+          "4.17.21"
+         ],
+         "published": "2021-05-06T16:05:51Z",
+         "modified": "2026-10-17T02:55:38.085813876Z",
+         "references": [
+          "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+          "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+          "https://www.oracle.com/security-alerts/cpuoct2021.html"
+         ],
+         "url": "https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm",
+         "license": "CC-BY-4.0",
+         "source_database": "GitHub Advisory Database"
+        }
+       ],
+       "truncated": false,
+       "data_fetched_at": "2026-11-24T08:00:00.000Z",
+       "queried_at": "2026-11-24T08:00:00.000Z",
+       "source": "OSV.dev (https://osv.dev). Excerpted and modified: details text omitted, affected ranges restructured and filtered to the queried package. Per-advisory license in `license`."
+      }
+     ]
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "GET /sec/insider-trades": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/sec/insider-trades",
+    "description": "Recent insider trading for a US public company: SEC Form 4 filings parsed into structured JSON. Look up by stock ticker (e.g. AAPL) or SEC CIK; returns every transaction in the 4 most recent Form 4 / 4/A filings: insider name and role, date, code (P purchase, S sale, A award, M exercise...), shares, price, shares owned after, 10b5-1 plan flag and filing link. No recent Form 4 returns an empty transactions list (charged); an unknown ticker or CIK is a free 404. Data from SEC EDGAR, fetched live.",
+    "mimeType": "application/json",
+    "serviceName": "SEC EDGAR Insider Trades and Filings",
+    "tags": [
+     "sec",
+     "edgar",
+     "insider-trading",
+     "form-4",
+     "filings",
+     "stocks"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "ticker": "AAPL"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "issuer": {
+         "cik": "0000320193",
+         "name": "Apple Inc.",
+         "tickers": [
+          "AAPL"
+         ]
+        },
+        "filings_checked": 4,
+        "transaction_count": 6,
+        "transactions": [
+         {
+          "accession_number": "0001140361-26-044952",
+          "form": "4",
+          "filing_date": "2026-11-19",
+          "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126044952/0001140361-26-044952-index.htm",
+          "reporting_owners": [
+           {
+            "name": "Newstead Jennifer",
+            "cik": "0001780525",
+            "is_director": false,
+            "is_officer": true,
+            "officer_title": "SVP, GC and Government Affairs",
+            "is_ten_percent_owner": false,
+            "is_other": false
+           }
+          ],
+          "rule_10b5_1": true,
+          "table": "non_derivative",
+          "security": "Common Stock",
+          "transaction_date": "2026-11-17",
+          "code": "S",
+          "code_description": "Open market or private sale",
+          "acquired_disposed": "D",
+          "shares": 2398,
+          "price_per_share": 352.77,
+          "shares_owned_after": 25200,
+          "ownership": "D",
+          "underlying_security": null
+         }
+        ],
+        "data_fetched_at": "2026-11-24T19:00:00.000Z",
+        "queried_at": "2026-11-24T19:00:00.000Z",
+        "source": "SEC EDGAR (https://www.sec.gov/edgar), public filings data retrieved from data.sec.gov and sec.gov archives. Not affiliated with or endorsed by the U.S. Securities and Exchange Commission."
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "ticker": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.\\-]{0,9}$",
+            "description": "US stock ticker, e.g. AAPL or BRK-B. Pass ticker or cik, not both.",
+            "examples": [
+             "AAPL"
+            ]
+           },
+           "cik": {
+            "type": "string",
+            "pattern": "^\\d{1,10}$",
+            "description": "SEC Central Index Key, with or without leading zeros, e.g. 320193",
+            "examples": [
+             "320193"
+            ]
+           }
+          },
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "issuer": {
+            "type": "object",
+            "properties": {
+             "cik": {
+              "type": "string",
+              "description": "10-digit CIK"
+             },
+             "name": {
+              "type": "string"
+             },
+             "tickers": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             }
+            },
+            "required": [
+             "cik",
+             "name",
+             "tickers"
+            ]
+           },
+           "filings_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+           },
+           "transaction_count": {
+            "type": "integer",
+            "minimum": 0
+           },
+           "transactions": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "accession_number": {
+               "type": "string"
+              },
+              "form": {
+               "type": "string",
+               "enum": [
+                "4",
+                "4/A"
+               ]
+              },
+              "filing_date": {
+               "type": "string"
+              },
+              "filing_url": {
+               "type": "string",
+               "description": "EDGAR filing index page"
+              },
+              "reporting_owners": {
+               "type": "array",
+               "items": {
+                "type": "object",
+                "properties": {
+                 "name": {
+                  "type": "string"
+                 },
+                 "cik": {
+                  "type": "string"
+                 },
+                 "is_director": {
+                  "type": "boolean"
+                 },
+                 "is_officer": {
+                  "type": "boolean"
+                 },
+                 "officer_title": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 },
+                 "is_ten_percent_owner": {
+                  "type": "boolean"
+                 },
+                 "is_other": {
+                  "type": "boolean"
+                 }
+                }
+               }
+              },
+              "rule_10b5_1": {
+               "type": [
+                "boolean",
+                "null"
+               ],
+               "description": "Filer checked the Rule 10b5-1 trading plan box (null on older forms without it)"
+              },
+              "table": {
+               "type": "string",
+               "enum": [
+                "non_derivative",
+                "derivative"
+               ]
+              },
+              "security": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "transaction_date": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "code": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "description": "Form 4 transaction code: P purchase, S sale, A award, M exercise, F tax withholding, G gift..."
+              },
+              "code_description": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "acquired_disposed": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "enum": [
+                "A",
+                "D",
+                null
+               ]
+              },
+              "shares": {
+               "type": [
+                "number",
+                "null"
+               ]
+              },
+              "price_per_share": {
+               "type": [
+                "number",
+                "null"
+               ],
+               "description": "null when the filing gives the price only in a footnote"
+              },
+              "shares_owned_after": {
+               "type": [
+                "number",
+                "null"
+               ]
+              },
+              "ownership": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "enum": [
+                "D",
+                "I",
+                null
+               ],
+               "description": "D direct, I indirect"
+              },
+              "underlying_security": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             },
+             "required": [
+              "accession_number",
+              "form",
+              "filing_date",
+              "filing_url",
+              "reporting_owners",
+              "table",
+              "transaction_date",
+              "code",
+              "shares",
+              "price_per_share"
+             ]
+            },
+            "description": "Newest filing first, in filing order within a filing"
+           },
+           "data_fetched_at": {
+            "type": "string",
+            "description": "When the filing list was fetched from SEC EDGAR (ISO 8601)"
+           },
+           "queried_at": {
+            "type": "string"
+           },
+           "source": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "issuer",
+           "filings_checked",
+           "transaction_count",
+           "transactions",
+           "data_fetched_at",
+           "queried_at",
+           "source"
+          ]
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/sec/insider-trades",
+    "description": "Recent insider trading for a US public company: SEC Form 4 filings parsed into structured JSON. Look up by stock ticker (e.g. AAPL) or SEC CIK; returns every transaction in the 4 most recent Form 4 / 4/A filings: insider name and role, date, code (P purchase, S sale, A award, M exercise...), shares, price, shares owned after, 10b5-1 plan flag and filing link. No recent Form 4 returns an empty transactions list (charged); an unknown ticker or CIK is a free 404. Data from SEC EDGAR, fetched live.",
+    "mimeType": "application/json",
+    "serviceName": "SEC EDGAR Insider Trades and Filings",
+    "tags": [
+     "sec",
+     "edgar",
+     "insider-trading",
+     "form-4",
+     "filings",
+     "stocks"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.003",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/sec/insider-trades?ticker=AAPL"
+    },
+    "response": {
+     "issuer": {
+      "cik": "0000320193",
+      "name": "Apple Inc.",
+      "tickers": [
+       "AAPL"
+      ]
+     },
+     "filings_checked": 4,
+     "transaction_count": 6,
+     "transactions": [
+      {
+       "accession_number": "0001140361-26-044952",
+       "form": "4",
+       "filing_date": "2026-11-19",
+       "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126044952/0001140361-26-044952-index.htm",
+       "reporting_owners": [
+        {
+         "name": "Newstead Jennifer",
+         "cik": "0001780525",
+         "is_director": false,
+         "is_officer": true,
+         "officer_title": "SVP, GC and Government Affairs",
+         "is_ten_percent_owner": false,
+         "is_other": false
+        }
+       ],
+       "rule_10b5_1": true,
+       "table": "non_derivative",
+       "security": "Common Stock",
+       "transaction_date": "2026-11-17",
+       "code": "S",
+       "code_description": "Open market or private sale",
+       "acquired_disposed": "D",
+       "shares": 2398,
+       "price_per_share": 352.77,
+       "shares_owned_after": 25200,
+       "ownership": "D",
+       "underlying_security": null
+      }
+     ],
+     "data_fetched_at": "2026-11-24T19:00:00.000Z",
+     "queried_at": "2026-11-24T19:00:00.000Z",
+     "source": "SEC EDGAR (https://www.sec.gov/edgar), public filings data retrieved from data.sec.gov and sec.gov archives. Not affiliated with or endorsed by the U.S. Securities and Exchange Commission."
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "GET /sec/latest-filings": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/sec/latest-filings",
+    "description": "Latest SEC filings for a US public company by ticker or CIK: 8-K (with item numbers and titles, e.g. 2.02 earnings results), 10-K, 10-Q, Form 4, S-1 and others. Optional form filter (e.g. form=8-K) and limit (1-50, default 20). Returns form type, filing and report dates, acceptance time and document links. Data from SEC EDGAR, fetched live (cached up to 10 minutes).",
+    "mimeType": "application/json",
+    "serviceName": "SEC EDGAR Insider Trades and Filings",
+    "tags": [
+     "sec",
+     "edgar",
+     "insider-trading",
+     "form-4",
+     "filings",
+     "stocks"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "ticker": "AAPL",
+        "form": "8-K",
+        "limit": "2"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "issuer": {
+         "cik": "0000320193",
+         "name": "Apple Inc.",
+         "tickers": [
+          "AAPL"
+         ]
+        },
+        "form": "8-K",
+        "count": 2,
+        "filings": [
+         {
+          "accession_number": "0001140361-26-042798",
+          "form": "8-K",
+          "filing_date": "2026-11-09",
+          "report_date": "2026-11-05",
+          "accepted_at": "2026-11-09T21:30:40.000Z",
+          "items": [
+           {
+            "item": "8.01",
+            "title": "Other Events"
+           },
+           {
+            "item": "9.01",
+            "title": "Financial Statements and Exhibits"
+           }
+          ],
+          "description": null,
+          "document_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/ef20085077_8k.htm",
+          "index_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/0001140361-26-042798-index.htm"
+         },
+         {
+          "accession_number": "0000320193-26-000024",
+          "form": "8-K",
+          "filing_date": "2026-11-02",
+          "report_date": "2026-11-02",
+          "accepted_at": "2026-11-02T21:30:23.000Z",
+          "items": [
+           {
+            "item": "2.02",
+            "title": "Results of Operations and Financial Condition"
+           },
+           {
+            "item": "9.01",
+            "title": "Financial Statements and Exhibits"
+           }
+          ],
+          "description": "8-K",
+          "document_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/aapl-20261102.htm",
+          "index_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/0000320193-26-000024-index.htm"
+         }
+        ],
+        "data_fetched_at": "2026-11-24T19:00:00.000Z",
+        "queried_at": "2026-11-24T19:00:00.000Z",
+        "source": "SEC EDGAR (https://www.sec.gov/edgar), public filings data retrieved from data.sec.gov and sec.gov archives. Not affiliated with or endorsed by the U.S. Securities and Exchange Commission."
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "ticker": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.\\-]{0,9}$",
+            "description": "US stock ticker, e.g. AAPL or BRK-B. Pass ticker or cik, not both.",
+            "examples": [
+             "AAPL"
+            ]
+           },
+           "cik": {
+            "type": "string",
+            "pattern": "^\\d{1,10}$",
+            "description": "SEC Central Index Key, with or without leading zeros, e.g. 320193",
+            "examples": [
+             "320193"
+            ]
+           },
+           "form": {
+            "type": "string",
+            "description": "Only this EDGAR form type, e.g. 8-K, 10-Q, 10-K, 4",
+            "examples": [
+             "8-K"
+            ]
+           },
+           "limit": {
+            "type": "string",
+            "pattern": "^\\d{1,3}$",
+            "description": "Number of filings, 1-50 (default 20)",
+            "examples": [
+             "2"
+            ]
+           }
+          },
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "issuer": {
+            "type": "object",
+            "properties": {
+             "cik": {
+              "type": "string",
+              "description": "10-digit CIK"
+             },
+             "name": {
+              "type": "string"
+             },
+             "tickers": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             }
+            },
+            "required": [
+             "cik",
+             "name",
+             "tickers"
+            ]
+           },
+           "form": {
+            "type": [
+             "string",
+             "null"
+            ]
+           },
+           "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 50
+           },
+           "filings": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "accession_number": {
+               "type": "string"
+              },
+              "form": {
+               "type": "string"
+              },
+              "filing_date": {
+               "type": "string"
+              },
+              "report_date": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "accepted_at": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "items": {
+               "type": "array",
+               "description": "8-K item numbers with titles, e.g. 2.02 Results of Operations and Financial Condition",
+               "items": {
+                "type": "object",
+                "properties": {
+                 "item": {
+                  "type": "string"
+                 },
+                 "title": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 }
+                }
+               }
+              },
+              "description": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "document_url": {
+               "type": "string"
+              },
+              "index_url": {
+               "type": "string"
+              }
+             }
+            }
+           },
+           "data_fetched_at": {
+            "type": "string"
+           },
+           "queried_at": {
+            "type": "string"
+           },
+           "source": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "issuer",
+           "form",
+           "count",
+           "filings",
+           "data_fetched_at",
+           "queried_at",
+           "source"
+          ]
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/sec/latest-filings",
+    "description": "Latest SEC filings for a US public company by ticker or CIK: 8-K (with item numbers and titles, e.g. 2.02 earnings results), 10-K, 10-Q, Form 4, S-1 and others. Optional form filter (e.g. form=8-K) and limit (1-50, default 20). Returns form type, filing and report dates, acceptance time and document links. Data from SEC EDGAR, fetched live (cached up to 10 minutes).",
+    "mimeType": "application/json",
+    "serviceName": "SEC EDGAR Insider Trades and Filings",
+    "tags": [
+     "sec",
+     "edgar",
+     "insider-trading",
+     "form-4",
+     "filings",
+     "stocks"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.003",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/sec/latest-filings?ticker=AAPL&form=8-K&limit=2"
+    },
+    "response": {
+     "issuer": {
+      "cik": "0000320193",
+      "name": "Apple Inc.",
+      "tickers": [
+       "AAPL"
+      ]
+     },
+     "form": "8-K",
+     "count": 2,
+     "filings": [
+      {
+       "accession_number": "0001140361-26-042798",
+       "form": "8-K",
+       "filing_date": "2026-11-09",
+       "report_date": "2026-11-05",
+       "accepted_at": "2026-11-09T21:30:40.000Z",
+       "items": [
+        {
+         "item": "8.01",
+         "title": "Other Events"
+        },
+        {
+         "item": "9.01",
+         "title": "Financial Statements and Exhibits"
+        }
+       ],
+       "description": null,
+       "document_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/ef20085077_8k.htm",
+       "index_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/0001140361-26-042798-index.htm"
+      },
+      {
+       "accession_number": "0000320193-26-000024",
+       "form": "8-K",
+       "filing_date": "2026-11-02",
+       "report_date": "2026-11-02",
+       "accepted_at": "2026-11-02T21:30:23.000Z",
+       "items": [
+        {
+         "item": "2.02",
+         "title": "Results of Operations and Financial Condition"
+        },
+        {
+         "item": "9.01",
+         "title": "Financial Statements and Exhibits"
+        }
+       ],
+       "description": "8-K",
+       "document_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/aapl-20261102.htm",
+       "index_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000024/0000320193-26-000024-index.htm"
+      }
+     ],
+     "data_fetched_at": "2026-11-24T19:00:00.000Z",
+     "queried_at": "2026-11-24T19:00:00.000Z",
+     "source": "SEC EDGAR (https://www.sec.gov/edgar), public filings data retrieved from data.sec.gov and sec.gov archives. Not affiliated with or endorsed by the U.S. Securities and Exchange Commission."
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "GET /cn/workday?date=2026-10-08": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/cn/workday?date=2026-10-08",
+    "description": "Is a given date a working day in mainland China? Applies the State Council (国务院) holiday notice: public holiday periods, weekend makeup workdays (调休补班) and ordinary weekends. Returns holiday name and source link.",
+    "mimeType": "application/json",
+    "serviceName": "China Workday Calendar",
+    "tags": [
+     "calendar",
+     "holidays",
+     "china",
+     "business-days",
+     "workday"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "date": "2026-02-14"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "date": "2026-02-14",
+        "weekday": 6,
+        "is_workday": true,
+        "is_public_holiday": false,
+        "is_makeup_workday": true,
+        "holiday_name": null,
+        "kind": "makeup_workday",
+        "source_url": "https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm",
+        "data_updated": "2026-11-05"
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Calendar date in China (YYYY-MM-DD), 2020-01-01..2027-12-31"
+           }
+          },
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+           },
+           "weekday": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7,
+            "description": "ISO weekday, 1 = Monday, 7 = Sunday"
+           },
+           "is_workday": {
+            "type": "boolean",
+            "description": "true for an ordinary weekday or a makeup workday (调休补班)"
+           },
+           "is_public_holiday": {
+            "type": "boolean",
+            "description": "true inside an official holiday period (放假) from the State Council notice"
+           },
+           "is_makeup_workday": {
+            "type": "boolean",
+            "description": "true for a weekend day officially designated as a working day (调休上班)"
+           },
+           "holiday_name": {
+            "type": [
+             "string",
+             "null"
+            ],
+            "description": "Holiday name as written in the notice, e.g. 春节"
+           },
+           "kind": {
+            "type": "string",
+            "enum": [
+             "workday",
+             "weekend",
+             "public_holiday",
+             "makeup_workday"
+            ]
+           },
+           "source_url": {
+            "type": "string",
+            "description": "gov.cn notice the answer is based on"
+           },
+           "data_updated": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Publication date of the newest notice in the dataset"
+           }
+          },
+          "required": [
+           "date",
+           "weekday",
+           "is_workday",
+           "is_public_holiday",
+           "is_makeup_workday",
+           "holiday_name",
+           "kind",
+           "source_url",
+           "data_updated"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/cn/workday?date=2026-10-08",
+    "description": "Is a given date a working day in mainland China? Applies the State Council (国务院) holiday notice: public holiday periods, weekend makeup workdays (调休补班) and ordinary weekends. Returns holiday name and source link.",
+    "mimeType": "application/json",
+    "serviceName": "China Workday Calendar",
+    "tags": [
+     "calendar",
+     "holidays",
+     "china",
+     "business-days",
+     "workday"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.003",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/cn/workday?date=2026-02-14"
+    },
+    "response": {
+     "date": "2026-02-14",
+     "weekday": 6,
+     "is_workday": true,
+     "is_public_holiday": false,
+     "is_makeup_workday": true,
+     "holiday_name": null,
+     "kind": "makeup_workday",
+     "source_url": "https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm",
+     "data_updated": "2026-11-05"
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "GET /deps/advisories?ecosystem=npm&name=lodash&version=4.17.20": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20",
+    "description": "Is this package version safe to install? Dependency check for install safety before npm install, pip install or cargo add, for one exact npm, PyPI, Go, crates.io or Maven version. Returns vulnerable true/false and the OSV.dev advisories for that version (CVE, GHSA, PYSEC, GO and RUSTSEC vulnerabilities and OpenSSF malicious-package MAL- entries) with CVSS, affected ranges, fixed versions and links. Package names are case-sensitive. Data fetched live from OSV.dev (cached up to 1 hour).",
+    "mimeType": "application/json",
+    "serviceName": "Package Vulnerability Advisories",
+    "tags": [
+     "install safety",
+     "dependency check",
+     "package vulnerability",
+     "cve",
+     "osv"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "ecosystem": "npm",
+        "name": "lodash",
+        "version": "4.17.20"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "ecosystem": "npm",
+        "name": "lodash",
+        "version": "4.17.20",
+        "vulnerable": true,
+        "advisory_count": 1,
+        "advisories": [
+         {
+          "id": "GHSA-35jh-r3h4-6jhm",
+          "aliases": [
+           "CVE-2021-23337"
+          ],
+          "summary": "Command Injection in lodash",
+          "severity": {
+           "level": "HIGH",
+           "cvss": [
+            {
+             "type": "CVSS_V3",
+             "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+            }
+           ]
+          },
+          "affected": [
+           {
+            "package": "lodash",
+            "ranges": [
+             {
+              "type": "SEMVER",
+              "introduced": "0",
+              "fixed": "4.17.21"
+             }
+            ]
+           }
+          ],
+          "fixed_versions": [
+           "4.17.21"
+          ],
+          "published": "2021-05-06T16:05:51Z",
+          "modified": "2026-10-17T02:55:38.085813876Z",
+          "references": [
+           "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+           "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+           "https://www.oracle.com/security-alerts/cpuoct2021.html"
+          ],
+          "url": "https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm",
+          "license": "CC-BY-4.0",
+          "source_database": "GitHub Advisory Database"
+         }
+        ],
+        "truncated": false,
+        "data_fetched_at": "2026-11-24T08:00:00.000Z",
+        "queried_at": "2026-11-24T08:00:00.000Z",
+        "source": "OSV.dev (https://osv.dev). Excerpted and modified: details text omitted, affected ranges restructured and filtered to the queried package. Per-advisory license in `license`."
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "ecosystem": {
+            "type": "string",
+            "enum": [
+             "npm",
+             "PyPI",
+             "Go",
+             "crates.io",
+             "Maven"
+            ],
+            "description": "Package ecosystem (case-insensitive on input)",
+            "examples": [
+             "npm"
+            ]
+           },
+           "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 214,
+            "description": "Package name exactly as published; matching is case-sensitive for npm (lodash, not Lodash; legacy names such as JSONStream keep their case). Maven uses groupId:artifactId, Go the module path. PyPI names are normalised.",
+            "examples": [
+             "lodash"
+            ]
+           },
+           "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Exact version, e.g. 4.17.20",
+            "examples": [
+             "4.17.20"
+            ]
+           }
+          },
+          "required": [
+           "ecosystem",
+           "name",
+           "version"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "ecosystem": {
+            "type": "string"
+           },
+           "name": {
+            "type": "string"
+           },
+           "version": {
+            "type": "string"
+           },
+           "vulnerable": {
+            "type": "boolean",
+            "description": "true when at least one advisory affects this exact version"
+           },
+           "advisory_count": {
+            "type": "integer",
+            "minimum": 0
+           },
+           "advisories": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "id": {
+               "type": "string"
+              },
+              "aliases": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               },
+               "description": "Usually CVE ids"
+              },
+              "summary": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "severity": {
+               "type": "object",
+               "properties": {
+                "level": {
+                 "type": [
+                  "string",
+                  "null"
+                 ],
+                 "description": "Source rating such as LOW, MODERATE, HIGH, CRITICAL"
+                },
+                "cvss": {
+                 "type": "array",
+                 "items": {
+                  "type": "object",
+                  "properties": {
+                   "type": {
+                    "type": "string"
+                   },
+                   "vector": {
+                    "type": "string"
+                   }
+                  }
+                 }
+                }
+               }
+              },
+              "affected": {
+               "type": "array",
+               "items": {
+                "type": "object",
+                "properties": {
+                 "package": {
+                  "type": "string"
+                 },
+                 "ranges": {
+                  "type": "array",
+                  "items": {
+                   "type": "object",
+                   "properties": {
+                    "type": {
+                     "type": "string"
+                    },
+                    "introduced": {
+                     "type": "string"
+                    },
+                    "fixed": {
+                     "type": "string"
+                    },
+                    "last_affected": {
+                     "type": "string"
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              },
+              "fixed_versions": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               }
+              },
+              "published": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "modified": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "references": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               }
+              },
+              "url": {
+               "type": "string",
+               "description": "osv.dev record page"
+              },
+              "source_database": {
+               "type": "string"
+              },
+              "license": {
+               "type": "string",
+               "description": "License of the source record, e.g. CC-BY-4.0"
+              }
+             },
+             "required": [
+              "id",
+              "aliases",
+              "summary",
+              "severity",
+              "affected",
+              "fixed_versions",
+              "url",
+              "license"
+             ]
+            }
+           },
+           "truncated": {
+            "type": "boolean",
+            "description": "true if the upstream result had more pages than were fetched"
+           },
+           "data_fetched_at": {
+            "type": "string",
+            "description": "When the data was fetched from OSV.dev (ISO 8601)"
+           },
+           "queried_at": {
+            "type": "string",
+            "description": "When this request was answered (ISO 8601)"
+           },
+           "source": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "ecosystem",
+           "name",
+           "version",
+           "vulnerable",
+           "advisory_count",
+           "advisories",
+           "truncated",
+           "data_fetched_at",
+           "queried_at",
+           "source"
+          ]
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20",
+    "description": "Is this package version safe to install? Dependency check for install safety before npm install, pip install or cargo add, for one exact npm, PyPI, Go, crates.io or Maven version. Returns vulnerable true/false and the OSV.dev advisories for that version (CVE, GHSA, PYSEC, GO and RUSTSEC vulnerabilities and OpenSSF malicious-package MAL- entries) with CVSS, affected ranges, fixed versions and links. Package names are case-sensitive. Data fetched live from OSV.dev (cached up to 1 hour).",
+    "mimeType": "application/json",
+    "serviceName": "Package Vulnerability Advisories",
+    "tags": [
+     "install safety",
+     "dependency check",
+     "package vulnerability",
+     "cve",
+     "osv"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.005",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/deps/advisories?ecosystem=npm&name=lodash&version=4.17.20"
+    },
+    "response": {
+     "ecosystem": "npm",
+     "name": "lodash",
+     "version": "4.17.20",
+     "vulnerable": true,
+     "advisory_count": 1,
+     "advisories": [
+      {
+       "id": "GHSA-35jh-r3h4-6jhm",
+       "aliases": [
+        "CVE-2021-23337"
+       ],
+       "summary": "Command Injection in lodash",
+       "severity": {
+        "level": "HIGH",
+        "cvss": [
+         {
+          "type": "CVSS_V3",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+         }
+        ]
+       },
+       "affected": [
+        {
+         "package": "lodash",
+         "ranges": [
+          {
+           "type": "SEMVER",
+           "introduced": "0",
+           "fixed": "4.17.21"
+          }
+         ]
+        }
+       ],
+       "fixed_versions": [
+        "4.17.21"
+       ],
+       "published": "2021-05-06T16:05:51Z",
+       "modified": "2026-10-17T02:55:38.085813876Z",
+       "references": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+        "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+        "https://www.oracle.com/security-alerts/cpuoct2021.html"
+       ],
+       "url": "https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm",
+       "license": "CC-BY-4.0",
+       "source_database": "GitHub Advisory Database"
+      }
+     ],
+     "truncated": false,
+     "data_fetched_at": "2026-11-24T08:00:00.000Z",
+     "queried_at": "2026-11-24T08:00:00.000Z",
+     "source": "OSV.dev (https://osv.dev). Excerpted and modified: details text omitted, affected ranges restructured and filtered to the queried package. Per-advisory license in `license`."
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ },
+ "GET /sec/insider-trades?ticker=AAPL": {
+  "status": 402,
+  "paymentRequired": {
+   "x402Version": 2,
+   "error": "Payment required",
+   "resource": {
+    "url": "http://localhost/sec/insider-trades?ticker=AAPL",
+    "description": "Recent insider trading for a US public company: SEC Form 4 filings parsed into structured JSON. Look up by stock ticker (e.g. AAPL) or SEC CIK; returns every transaction in the 4 most recent Form 4 / 4/A filings: insider name and role, date, code (P purchase, S sale, A award, M exercise...), shares, price, shares owned after, 10b5-1 plan flag and filing link. No recent Form 4 returns an empty transactions list (charged); an unknown ticker or CIK is a free 404. Data from SEC EDGAR, fetched live.",
+    "mimeType": "application/json",
+    "serviceName": "SEC EDGAR Insider Trades and Filings",
+    "tags": [
+     "sec",
+     "edgar",
+     "insider-trading",
+     "form-4",
+     "filings",
+     "stocks"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "extensions": {
+    "bazaar": {
+     "info": {
+      "input": {
+       "type": "http",
+       "queryParams": {
+        "ticker": "AAPL"
+       },
+       "method": "GET"
+      },
+      "output": {
+       "type": "json",
+       "example": {
+        "issuer": {
+         "cik": "0000320193",
+         "name": "Apple Inc.",
+         "tickers": [
+          "AAPL"
+         ]
+        },
+        "filings_checked": 4,
+        "transaction_count": 6,
+        "transactions": [
+         {
+          "accession_number": "0001140361-26-044952",
+          "form": "4",
+          "filing_date": "2026-11-19",
+          "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126044952/0001140361-26-044952-index.htm",
+          "reporting_owners": [
+           {
+            "name": "Newstead Jennifer",
+            "cik": "0001780525",
+            "is_director": false,
+            "is_officer": true,
+            "officer_title": "SVP, GC and Government Affairs",
+            "is_ten_percent_owner": false,
+            "is_other": false
+           }
+          ],
+          "rule_10b5_1": true,
+          "table": "non_derivative",
+          "security": "Common Stock",
+          "transaction_date": "2026-11-17",
+          "code": "S",
+          "code_description": "Open market or private sale",
+          "acquired_disposed": "D",
+          "shares": 2398,
+          "price_per_share": 352.77,
+          "shares_owned_after": 25200,
+          "ownership": "D",
+          "underlying_security": null
+         }
+        ],
+        "data_fetched_at": "2026-11-24T19:00:00.000Z",
+        "queried_at": "2026-11-24T19:00:00.000Z",
+        "source": "SEC EDGAR (https://www.sec.gov/edgar), public filings data retrieved from data.sec.gov and sec.gov archives. Not affiliated with or endorsed by the U.S. Securities and Exchange Commission."
+       }
+      }
+     },
+     "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+       "input": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "const": "http"
+         },
+         "method": {
+          "type": "string",
+          "enum": [
+           "GET"
+          ]
+         },
+         "queryParams": {
+          "type": "object",
+          "properties": {
+           "ticker": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.\\-]{0,9}$",
+            "description": "US stock ticker, e.g. AAPL or BRK-B. Pass ticker or cik, not both.",
+            "examples": [
+             "AAPL"
+            ]
+           },
+           "cik": {
+            "type": "string",
+            "pattern": "^\\d{1,10}$",
+            "description": "SEC Central Index Key, with or without leading zeros, e.g. 320193",
+            "examples": [
+             "320193"
+            ]
+           }
+          },
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "type",
+         "method"
+        ],
+        "additionalProperties": false
+       },
+       "output": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string"
+         },
+         "example": {
+          "type": "object",
+          "properties": {
+           "issuer": {
+            "type": "object",
+            "properties": {
+             "cik": {
+              "type": "string",
+              "description": "10-digit CIK"
+             },
+             "name": {
+              "type": "string"
+             },
+             "tickers": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             }
+            },
+            "required": [
+             "cik",
+             "name",
+             "tickers"
+            ]
+           },
+           "filings_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+           },
+           "transaction_count": {
+            "type": "integer",
+            "minimum": 0
+           },
+           "transactions": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "accession_number": {
+               "type": "string"
+              },
+              "form": {
+               "type": "string",
+               "enum": [
+                "4",
+                "4/A"
+               ]
+              },
+              "filing_date": {
+               "type": "string"
+              },
+              "filing_url": {
+               "type": "string",
+               "description": "EDGAR filing index page"
+              },
+              "reporting_owners": {
+               "type": "array",
+               "items": {
+                "type": "object",
+                "properties": {
+                 "name": {
+                  "type": "string"
+                 },
+                 "cik": {
+                  "type": "string"
+                 },
+                 "is_director": {
+                  "type": "boolean"
+                 },
+                 "is_officer": {
+                  "type": "boolean"
+                 },
+                 "officer_title": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 },
+                 "is_ten_percent_owner": {
+                  "type": "boolean"
+                 },
+                 "is_other": {
+                  "type": "boolean"
+                 }
+                }
+               }
+              },
+              "rule_10b5_1": {
+               "type": [
+                "boolean",
+                "null"
+               ],
+               "description": "Filer checked the Rule 10b5-1 trading plan box (null on older forms without it)"
+              },
+              "table": {
+               "type": "string",
+               "enum": [
+                "non_derivative",
+                "derivative"
+               ]
+              },
+              "security": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "transaction_date": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "code": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "description": "Form 4 transaction code: P purchase, S sale, A award, M exercise, F tax withholding, G gift..."
+              },
+              "code_description": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "acquired_disposed": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "enum": [
+                "A",
+                "D",
+                null
+               ]
+              },
+              "shares": {
+               "type": [
+                "number",
+                "null"
+               ]
+              },
+              "price_per_share": {
+               "type": [
+                "number",
+                "null"
+               ],
+               "description": "null when the filing gives the price only in a footnote"
+              },
+              "shares_owned_after": {
+               "type": [
+                "number",
+                "null"
+               ]
+              },
+              "ownership": {
+               "type": [
+                "string",
+                "null"
+               ],
+               "enum": [
+                "D",
+                "I",
+                null
+               ],
+               "description": "D direct, I indirect"
+              },
+              "underlying_security": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             },
+             "required": [
+              "accession_number",
+              "form",
+              "filing_date",
+              "filing_url",
+              "reporting_owners",
+              "table",
+              "transaction_date",
+              "code",
+              "shares",
+              "price_per_share"
+             ]
+            },
+            "description": "Newest filing first, in filing order within a filing"
+           },
+           "data_fetched_at": {
+            "type": "string",
+            "description": "When the filing list was fetched from SEC EDGAR (ISO 8601)"
+           },
+           "queried_at": {
+            "type": "string"
+           },
+           "source": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "issuer",
+           "filings_checked",
+           "transaction_count",
+           "transactions",
+           "data_fetched_at",
+           "queried_at",
+           "source"
+          ]
+         }
+        },
+        "required": [
+         "type"
+        ]
+       }
+      },
+      "required": [
+       "input"
+      ]
+     }
+    }
+   }
+  },
+  "body": {
+   "x402Version": 2,
+   "accepts": [
+    {
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "amount": "3000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "payTo": "0xAa9BC6380C65fe6d99D0805837AE460D73A91CB2",
+     "maxTimeoutSeconds": 300,
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     }
+    }
+   ],
+   "resource": {
+    "url": "http://localhost/sec/insider-trades?ticker=AAPL",
+    "description": "Recent insider trading for a US public company: SEC Form 4 filings parsed into structured JSON. Look up by stock ticker (e.g. AAPL) or SEC CIK; returns every transaction in the 4 most recent Form 4 / 4/A filings: insider name and role, date, code (P purchase, S sale, A award, M exercise...), shares, price, shares owned after, 10b5-1 plan flag and filing link. No recent Form 4 returns an empty transactions list (charged); an unknown ticker or CIK is a free 404. Data from SEC EDGAR, fetched live.",
+    "mimeType": "application/json",
+    "serviceName": "SEC EDGAR Insider Trades and Filings",
+    "tags": [
+     "sec",
+     "edgar",
+     "insider-trading",
+     "form-4",
+     "filings",
+     "stocks"
+    ],
+    "iconUrl": "https://api.example.test/icon.png"
+   },
+   "error": "Payment required",
+   "price": "$0.003",
+   "currency": "USDC",
+   "network": "eip155:8453",
+   "how_to_pay": "x402 v2: decode the base64 PAYMENT-REQUIRED response header, sign one of its accepts, and retry the same request with a PAYMENT-SIGNATURE header. Invalid input is rejected with a free 400 before payment.",
+   "docs": "https://api.example.test/openapi.json",
+   "llms_txt": "https://api.example.test/llms.txt",
+   "install": "npx agentcash add https://api.example.test",
+   "example": {
+    "request": {
+     "method": "GET",
+     "url": "https://api.example.test/sec/insider-trades?ticker=AAPL"
+    },
+    "response": {
+     "issuer": {
+      "cik": "0000320193",
+      "name": "Apple Inc.",
+      "tickers": [
+       "AAPL"
+      ]
+     },
+     "filings_checked": 4,
+     "transaction_count": 6,
+     "transactions": [
+      {
+       "accession_number": "0001140361-26-044952",
+       "form": "4",
+       "filing_date": "2026-11-19",
+       "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126044952/0001140361-26-044952-index.htm",
+       "reporting_owners": [
+        {
+         "name": "Newstead Jennifer",
+         "cik": "0001780525",
+         "is_director": false,
+         "is_officer": true,
+         "officer_title": "SVP, GC and Government Affairs",
+         "is_ten_percent_owner": false,
+         "is_other": false
+        }
+       ],
+       "rule_10b5_1": true,
+       "table": "non_derivative",
+       "security": "Common Stock",
+       "transaction_date": "2026-11-17",
+       "code": "S",
+       "code_description": "Open market or private sale",
+       "acquired_disposed": "D",
+       "shares": 2398,
+       "price_per_share": 352.77,
+       "shares_owned_after": 25200,
+       "ownership": "D",
+       "underlying_security": null
+      }
+     ],
+     "data_fetched_at": "2026-11-24T19:00:00.000Z",
+     "queried_at": "2026-11-24T19:00:00.000Z",
+     "source": "SEC EDGAR (https://www.sec.gov/edgar), public filings data retrieved from data.sec.gov and sec.gov archives. Not affiliated with or endorsed by the U.S. Securities and Exchange Commission."
+    }
+   }
+  },
+  "browser": {
+   "status": 402,
+   "contentType": "text/html; charset=UTF-8",
+   "html": "<!DOCTYPE html>\n<html>\n  <head>\n    <title>Payment Required</title>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  </head>\n  <body>\n    <div style=\"max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;\">\n      <h1>Payment Required</h1>\n      <p>This resource is protected by the x402 payment protocol.</p>\n      <p style=\"margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;\">\n        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable\n        the in-browser wallet connection and payment UI. Programmatic clients should read\n        the payment requirements from the 402 response headers and JSON body.\n      </p>\n    </div>\n  </body>\n</html>"
+  }
+ }
+}

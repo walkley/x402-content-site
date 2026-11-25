@@ -40,6 +40,58 @@ export const globalKey = (day: string) => `global#${day}`;
 
 type Sender = { send(cmd: UpdateItemCommand): Promise<unknown> };
 
+/** Adds 1 to counter `key` unless it has reached limit: the new count, or false when it has. */
+async function incrementCounter(db: Sender, table: string, key: string, limit: number, expiresAt: number): Promise<number | false> {
+  try {
+    const out = await db.send(
+      new UpdateItemCommand({
+        TableName: table,
+        Key: { pk: { S: key } },
+        UpdateExpression: "SET expires_at = :exp ADD n :one",
+        ConditionExpression: "attribute_not_exists(n) OR n < :limit",
+        ExpressionAttributeValues: { ":one": { N: "1" }, ":exp": { N: String(expiresAt) }, ":limit": { N: String(limit) } },
+        ReturnValues: "UPDATED_NEW",
+      }),
+    );
+    return Number((out as { Attributes?: { n?: { N?: string } } } | undefined)?.Attributes?.n?.N ?? Number.NaN);
+  } catch (e) {
+    if (e instanceof ConditionalCheckFailedException || (e as Error).name === "ConditionalCheckFailedException") return false;
+    throw e;
+  }
+}
+
+/** Browser paywall pages (about 0.68 MB gzipped each) rendered per UTC day for everyone together. */
+export const PAYWALL_DAILY = 2000;
+
+/** One global counter per UTC day in the quota table (key `<name>#<day>`). take() is false once the day's limit is reached. */
+export interface DailyCap {
+  readonly limit: number;
+  take(): Promise<boolean>;
+}
+
+export class DynamoDailyCap implements DailyCap {
+  constructor(
+    private readonly db: Sender,
+    private readonly table: string,
+    private readonly name: string,
+    readonly limit: number,
+    private readonly now: () => number = Date.now,
+  ) {}
+  async take(): Promise<boolean> {
+    const now = this.now();
+    const expiresAt = (Math.floor(now / DAY_MS) + 2) * 86_400;
+    return (await incrementCounter(this.db, this.table, `${this.name}#${utcDay(now)}`, this.limit, expiresAt)) !== false;
+  }
+}
+
+/** The paywall page cap; undefined without QUOTA_TABLE (local runs: no cap). */
+export function paywallCapFromEnv(env: Record<string, string | undefined>): DailyCap | undefined {
+  const table = env.QUOTA_TABLE?.trim();
+  if (!table) return undefined;
+  const db = new DynamoDBClient({ maxAttempts: 2, requestHandler: { connectionTimeout: 1_000, requestTimeout: 1_500 } });
+  return new DynamoDailyCap(db, table, "paywall", limitFromEnv(env.PAYWALL_DAILY, PAYWALL_DAILY, "PAYWALL_DAILY"));
+}
+
 export class DynamoQuota implements FreeQuota {
   /** Set once the key has been read, so ipHash can run without waiting or retrying the read. */
   private loadedKey?: string;
@@ -54,24 +106,8 @@ export class DynamoQuota implements FreeQuota {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Adds 1 unless the counter has reached limit: the new count, or false when it has. */
-  private async increment(key: string, limit: number, expiresAt: number): Promise<number | false> {
-    try {
-      const out = await this.db.send(
-        new UpdateItemCommand({
-          TableName: this.table,
-          Key: { pk: { S: key } },
-          UpdateExpression: "SET expires_at = :exp ADD n :one",
-          ConditionExpression: "attribute_not_exists(n) OR n < :limit",
-          ExpressionAttributeValues: { ":one": { N: "1" }, ":exp": { N: String(expiresAt) }, ":limit": { N: String(limit) } },
-          ReturnValues: "UPDATED_NEW",
-        }),
-      );
-      return Number((out as { Attributes?: { n?: { N?: string } } } | undefined)?.Attributes?.n?.N ?? Number.NaN);
-    } catch (e) {
-      if (e instanceof ConditionalCheckFailedException || (e as Error).name === "ConditionalCheckFailedException") return false;
-      throw e;
-    }
+  private increment(key: string, limit: number, expiresAt: number): Promise<number | false> {
+    return incrementCounter(this.db, this.table, key, limit, expiresAt);
   }
 
   private async key(): Promise<string> {

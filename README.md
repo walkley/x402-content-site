@@ -65,6 +65,21 @@ claude mcp add --transport http cn-calendar https://<origin>/mcp
 - Pay the link by calling `url` with an x402 v2 client. Nothing is verified or settled on `/paid/mcp` itself; payment in `_meta["x402/payment"]` (x402 MCP transport) is not supported.
 - Invalid arguments still get the input error, without a link. The free quota is never read or counted.
 
+### Seller payer audit and x402 payments report
+
+- `GET /x402/payer-audit/preview?payTo=0x...` (free): payer counts per label and the probe share for one Base payTo.
+- `GET /x402/payer-audit?payTo=0x...` ($0.05): every payer of the last 30 days labelled `probe` (wallet in `data/payer-audit/probe-wallets.json`, 164 wallets), `self` (funded by the payTo or by a wallet it funded), `fleet` (one EOA funder sent the same amount to 3+ payers; every payer it funded), `real` (3+ payments on 2+ days) or `once`, with funders, settling facilitator, CDP/PayAI listing and suggestions. A payTo not in the data is a free 404 before payment; unreadable data is a free 502.
+- `GET /reports/x402-real-payers` (free summary), `/reports/x402-real-payers/full` ($2, HTML; browsers get the official `@x402/paywall` EVM page: no CDP key, it loads the Coinbase Wallet / Base Account SDK, whose usage telemetry the app switches off; only gzip clients get it, at most 2,000 pages a UTC day, `PAYWALL_DAILY`), `/reports/x402-real-payers.json` ($0.5).
+
+The audit data is built offline, one JSON per payTo, and read from the stack's private S3 bucket (output `PayerAuditBucket`, prefix `payer-audit/`; the function can only read it):
+
+```bash
+npx tsx scripts/payer-audit/build.ts --rows <directory snapshot rows.json.gz> [--payto 0x..,0x..] \
+  [--state .payer-audit/state] [--out .payer-audit/out] [--upload s3://<PayerAuditBucket>/payer-audit/]
+```
+
+Reruns are incremental (cursors in `--state`). Locally, `PAYER_AUDIT_DIR=.payer-audit/out npm run dev` serves the files from disk. Payments by a Coinbase Smart Wallet settle on PayAI only once the wallet is deployed (ERC-1271); a counterfactual (ERC-6492) wallet is refused with `eip6492_factory_not_allowed` (Base Sepolia, 2026-11-25).
+
 ### How the advisory endpoints use OSV.dev
 
 - OSV.dev is called only after the payment is verified: `POST https://api.osv.dev/v1/query` with an identifying `User-Agent`, following `next_page_token` for up to 5 pages per package (`truncated: true` beyond that). Each call times out after 5 s, and all calls for one paid request share a **15 s deadline**, which leaves time to settle before the HTTP API's 30 s integration timeout. A batch runs single queries 10 at a time and makes at most **60 OSV calls in total** (one first page per package plus up to 10 follow-up pages), so one payment cannot trigger more upstream work than that. A result cut short by that budget is marked `truncated` and not cached.

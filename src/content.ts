@@ -1,4 +1,13 @@
 // Static descriptions shared by the x402 route config, /openapi.json, /llms.txt and the preview page.
+import {
+  PAYER_AUDIT_DESCRIPTION,
+  PAYER_AUDIT_EXAMPLE_INPUT,
+  PAYER_AUDIT_INPUT_SCHEMA,
+  PAYER_AUDIT_OUTPUT_SCHEMA,
+  PAYER_AUDIT_PREVIEW_DESCRIPTION,
+} from "./payer-audit.js";
+import auditExample from "./payer-audit-example.json";
+import { REPORT_DESCRIPTION, REPORT_JSON_DESCRIPTION, REPORT_JSON_EXAMPLE_OUTPUT, REPORT_JSON_OUTPUT_SCHEMA } from "./report.js";
 import { MAX_RANGE_DAYS } from "./calendar.js";
 import { calendar } from "./data.js";
 import {
@@ -32,6 +41,7 @@ import {
 } from "./content-sec.js";
 import { PAID_MCP_PATH, PRIVACY_NOTE, mcpAddCommand } from "./mcp.js";
 
+export const AUDIT_TAG = "x402 Seller Payer Audit";
 export const SERVICE_NAME = "China Workday Calendar";
 export const TAGS = ["calendar", "holidays", "china", "business-days", "workday"];
 export const REPO_URL = "https://github.com/walkley/x402-content-site";
@@ -126,6 +136,9 @@ export interface PriceInfo {
   batchPrice: string;
   insiderTradesPrice: string;
   latestFilingsPrice: string;
+  payerAuditPrice: string;
+  reportJsonPrice: string;
+  reportHtmlPrice: string;
   /** Free MCP tool calls per source IP per day. */
   freePerIpDaily: number;
 }
@@ -186,6 +199,7 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       { name: SERVICE_NAME, description: `Data ${calendar.firstDate}..${calendar.lastDate} from State Council (国务院) holiday notices on gov.cn, updated ${calendar.dataUpdated}.` },
       { name: DEPS_SERVICE_NAME, description: OSV_ATTRIBUTION },
       { name: SEC_SERVICE_NAME, description: SEC_ATTRIBUTION },
+      { name: AUDIT_TAG, description: "Base USDC payments into x402 payTo addresses, last 30 days, rebuilt offline from public RPC data." },
     ],
     paths: {
       "/cn/workday": {
@@ -322,6 +336,71 @@ export function openApi(baseUrl: string, p: PriceInfo) {
           },
         },
       },
+      "/x402/payer-audit": {
+        get: {
+          operationId: "x402_seller_payer_audit",
+          summary: "Who really pays my x402 endpoint",
+          description: PAYER_AUDIT_DESCRIPTION,
+          tags: [AUDIT_TAG],
+          "x-payment-info": paymentInfo(p.payerAuditPrice),
+          "x-x402-price": p.payerAuditPrice,
+          parameters: [{ name: "payTo", in: "query", required: true, schema: PAYER_AUDIT_INPUT_SCHEMA.properties.payTo }],
+          responses: {
+            "200": ok("Every payer labelled, with totals and suggestions", PAYER_AUDIT_OUTPUT_SCHEMA, auditExample),
+            "400": { description: "payTo missing or not a 0x address, or an unknown query parameter. Not charged." },
+            "402": paid(p.payerAuditPrice),
+            "404": { description: "payTo not in the data set (not_indexed). Not charged; the free preview tells you the same." },
+            "502": { description: "Audit data or facilitator unavailable. Not charged; retry later." },
+          },
+        },
+      },
+      "/x402/payer-audit/preview": {
+        get: {
+          operationId: "x402_seller_payer_audit_preview",
+          summary: "Free payer counts per label for an x402 payTo",
+          description: PAYER_AUDIT_PREVIEW_DESCRIPTION,
+          tags: [AUDIT_TAG],
+          security: [],
+          parameters: [{ name: "payTo", in: "query", required: true, schema: PAYER_AUDIT_INPUT_SCHEMA.properties.payTo }],
+          responses: {
+            "200": { description: "Counts per label and probe share", content: { "application/json": { schema: { type: "object" } } } },
+            "400": { description: "payTo missing or invalid, or an unknown query parameter" },
+            "404": { description: "payTo not in the data set" },
+          },
+        },
+      },
+      "/reports/x402-real-payers.json": {
+        get: {
+          operationId: "x402_payments_report",
+          summary: "x402 market report: real payers vs probes",
+          description: REPORT_JSON_DESCRIPTION,
+          tags: [AUDIT_TAG],
+          "x-payment-info": paymentInfo(p.reportJsonPrice),
+          "x-x402-price": p.reportJsonPrice,
+          responses: {
+            "200": ok("The full report as JSON", REPORT_JSON_OUTPUT_SCHEMA, REPORT_JSON_EXAMPLE_OUTPUT),
+            "400": { description: "Unknown query parameter. Not charged." },
+            "402": paid(p.reportJsonPrice),
+            "502": upstream,
+          },
+        },
+      },
+      "/reports/x402-real-payers/full": {
+        get: {
+          operationId: "x402_payments_report_html",
+          summary: "x402 market report for people (HTML, browser paywall)",
+          description: `${REPORT_DESCRIPTION} A browser gets the x402 paywall page (connect a wallet, sign a USDC authorization); after payment the report is returned as HTML.`,
+          tags: [AUDIT_TAG],
+          "x-payment-info": paymentInfo(p.reportHtmlPrice),
+          "x-x402-price": p.reportHtmlPrice,
+          responses: {
+            "200": { description: "The report", content: { "text/html": { schema: { type: "string" } } } },
+            "400": { description: "Unknown query parameter. Not charged." },
+            "402": { ...paid(p.reportHtmlPrice), content: { "text/html": { schema: { type: "string", description: "Browser paywall page" } }, "application/json": { schema: { type: "object" } } } },
+            "502": upstream,
+          },
+        },
+      },
       "/mcp": {
         post: {
           summary: `MCP server, Streamable HTTP, stateless JSON-RPC (free, ${p.freePerIpDaily} tool calls per IP per day, then the tool error names the paid x402 route)`,
@@ -337,6 +416,7 @@ export function openApi(baseUrl: string, p: PriceInfo) {
       },
       "/.well-known/mcp.json": free("MCP server manifest: endpoint, tools, free quota and prices (free)"),
       "/health": free("Liveness check (free)"),
+      "/reports/x402-real-payers": free("x402 market report summary page with headline numbers (free HTML)"),
       "/llms.txt": free("Agent-oriented summary of these APIs (free)"),
       "/SKILL.md": free("Agent skill (AgentSkills SKILL.md): endpoints, prices, examples and how to pay (free)"),
     },
@@ -412,6 +492,15 @@ An unknown ticker or CIK returns 404 and is not charged. Example: GET /sec/insid
 ${JSON.stringify(INSIDER_TRADES_EXAMPLE_OUTPUT)}
 
 ${SEC_ATTRIBUTION}
+
+## x402 seller payer audit and market report
+
+Who really pays an x402 endpoint: probes and test-buy wallets, self-funding, fleets, or repeat external payers (Base USDC, last 30 days).
+
+- [GET ${baseUrl}/x402/payer-audit/preview?payTo=0x...](${baseUrl}/x402/payer-audit/preview?payTo=${PAYER_AUDIT_EXAMPLE_INPUT.payTo}): free. ${PAYER_AUDIT_PREVIEW_DESCRIPTION}
+- [GET ${baseUrl}/x402/payer-audit?payTo=0x...](${baseUrl}/x402/payer-audit?payTo=${PAYER_AUDIT_EXAMPLE_INPUT.payTo}): ${p.payerAuditPrice}. ${PAYER_AUDIT_DESCRIPTION}
+- [GET ${baseUrl}/reports/x402-real-payers.json](${baseUrl}/reports/x402-real-payers.json): ${p.reportJsonPrice}. ${REPORT_JSON_DESCRIPTION}
+- [${baseUrl}/reports/x402-real-payers](${baseUrl}/reports/x402-real-payers): free summary page; the full HTML report at /reports/x402-real-payers/full is ${p.reportHtmlPrice} through the x402 browser paywall.
 
 ## Free
 

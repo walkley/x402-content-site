@@ -1,0 +1,826 @@
+{
+ "source": "x402-content-site evidence/funnel/probe-wallets.json (spray4, probe5, r12_probe149, agent402) plus Relay 0xf70da978 from research r12. Rule for r12_probe149: >=50 sellers, or >=20 sellers and <=3 tx per seller, or >=8 sellers and <=2 tx per seller, window 2026-10-26..11-25.",
+ "generated": "2026-11-25",
+ "wallets": [
+  {
+   "address": "0x24e6a249111ae0cc8ea09f487a114f7e7ef15e12",
+   "group": "agent402",
+   "label": "test-agentcore"
+  },
+  {
+   "address": "0x77065d81e18ad403bcd6e9a0616b288e16744121",
+   "group": "agent402",
+   "label": "spending"
+  },
+  {
+   "address": "0x80665a362793b4b67b2ec58f5dd8f0006e5560c7",
+   "group": "agent402",
+   "label": "test-circle-gateway"
+  },
+  {
+   "address": "0x902dcf34e53695bdea2ffb354b1a2e58bd598256",
+   "group": "agent402",
+   "label": "canary"
+  },
+  {
+   "address": "0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0",
+   "group": "agent402",
+   "label": "receiving"
+  },
+  {
+   "address": "0xfeda7403aabe9a492ed70e810b396d8548a4a022",
+   "group": "agent402",
+   "label": "canary-retired"
+  },
+  {
+   "address": "0x35fe83e85f949b7235595a76782296c6c9c3c030",
+   "group": "probe5",
+   "label": "directory prober"
+  },
+  {
+   "address": "0x73cc9400bd9f086d7427d3421d79195a68bb1ea4",
+   "group": "probe5",
+   "label": "directory prober"
+  },
+  {
+   "address": "0x8ec901f7e2710163387d70950f680f1ea2269d15",
+   "group": "probe5",
+   "label": "directory prober"
+  },
+  {
+   "address": "0xaa34bd941511cc82a19878e2efbe0bd7077e1db3",
+   "group": "probe5",
+   "label": "directory prober"
+  },
+  {
+   "address": "0xe54bb381c683b9ae150f561778f0d7bdc1065876",
+   "group": "probe5",
+   "label": "directory prober"
+  },
+  {
+   "address": "0x01aa479a6d4c3a5a2ac3eac5a3890f2f52121463",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x029e3cc8939cc228e137092fe3ba5c23c2612530",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x04d193a332f38980ec9a5ec87789009ab55b5dde",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x050baaba304a96b987a2ffc9f62e4129e5dff2bb",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x066a941598a9ea562be0aaa88c5f4b75e306f178",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x08ed18f31b7a81abb824a9616c38c76b8dfed5f7",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x0aa8e412cdc6d55dd6334dcef9e704937aee1ae5",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x0eee47e42d3e214c4dfa7c1dbe222e16d87a86c8",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x1352876955d931d805eecad5117a8e8f2cde266b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x171d8021b98c53dcbb3c9c30cbbbeb1b01850fca",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x197380c6f16e93b43940ec88a07825b0de0e4adb",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x1b31e2470a7c8506a404fe351a4248b9f50dd0eb",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x20125b033546d7ac6ce0aebc5ed0044e328b4759",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x22cfd38b9837e6f977b16f2ff6439ad7aa6b9bfe",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x2465a48f1e44ef60a986257e0b7c6f90e0a8a1b1",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x25b832be84d7923fba1fab0393eccec1590c8114",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x26572ff23c6c52bfb1a69cb0c9114a8be443b422",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x26eb3ad54c12fc7133a2b2b6eddc0692d94ebcea",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x27abcddd44c4959ac729d080703e677f13a3248c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x28bbf5ed9102e82fb4e145cb7137b119c8e259c7",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x291fe62eb245c5eea48edabf20834c0806875b2e",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x2971a2d9cbd886c7a4b8dccb8f78896884dc8345",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x2b2c2004df4d70dc5f3132eab7ee9bbb1e5480d8",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x30104e564ae1d79fb6315493fe7e45fb82bba02b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x34f8878ae60edd48f0d6ce500654c407b7d6dd53",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x37747fc7a4a53b70b554ef0388f6220f212ee92c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x37a599556aba9ad2eb0b5d0c22c8f072ee28a312",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x38b65a78040213f6aa0d09b740ef59a021648b9f",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x39833c1f5ada3be17fe63ae6cb9b12f3badaedbe",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x3a024d944625fda2de5a5be8146e75270d1d3c35",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x3a0aa040b8785babc28b8436065dd2057c17773e",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x3a5db87d8fcf46cca13bd7155982a32e2e24b2b0",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x3bf1ce24dca74f371219ef06a8e2ce4b728abf21",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x3d93d20c7cbb7ca6eda697787d8d64ef62c0432e",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x3ed93a7b87832f04a91137cacb273d39295e430e",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x44b6d38dd46ff614db337edbdfe0595b25193ba5",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x471b1ae281405a284c9c3e97844bf486576f09f6",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4821c2b368ea2b59148250b5a62648a0b3b6e7f8",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x48720157d947de547d7187656c64c954b2d45133",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4998d0f55e97598e1711fac4eb196ec318d8e08c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4b156ef53a220e66520a83bfec819e53b80c5923",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4b5c71082d027d16d2a146465d66f9eec11634f6",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4bc31016b1ad866778855b633705c727720c198b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4c29ec4f680ca88d0019edbfe3a8ff5c80499494",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4ddd7b4a6a1cb82852195fe0bc41e9c62d514354",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x4fb5284c884e52eb51828b9afe258d87a8a88d0b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x50c19b78cded2b8e01da719e92ab3617e6379fec",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x50ece7481333a365e962da8bdf3ae63f1e70c492",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x546673d69f5caca9e68f665c7313a427538a7a0c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x55604c92d2af771cf8f3993227c88299ebd57a51",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x55b3fe2c4a557c794d8477fbb39a84215d95edae",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x55fa13054ebd1108af6da15f6bbdbeecfeb73111",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x59e8877f00e5171d9871f55ba83cf008dfeba801",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x5a5329b7806de49cf584f499561767ee51baf357",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x6017c938d6e2f604251c434a4226a42f3f0fa1d4",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x6031551fc1fe26710fe4b20316d5dc91d9d6c2d1",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x60a5173dc4c5601a8f639b78fbcddcaa02f85cfb",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x6235be612674b6e2dbebba8628232cd4d8a06790",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x645e38d1951047edbf045e0da64344536dceca76",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x65772af2eb29949294f40cbbaf6efa0e1279e23a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x6689b5745b9c97bf6b11e33d17503955a5384300",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x6d8843c694b1be24d6728f9ea3b7cd15024a55f4",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x72c573fd7de6a3dec3035d48db938ebf733d159b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x737843f2b0252efd8392c99550b37834c90626c9",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x73f7779941605c9d4c2844776b470c4d311119ed",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x75480fd29a66c65c7f1215b42e5ace122540901c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x79f896ff38691931fc2494610c106ad755e6f758",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x7b3945fa70a4605501e35a20254f19426e36e70d",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x7cca9e70d844c71900eef5ab8b04e5631b5ce328",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x7e6abf81352b2115fd939b5dd2c568993339dc60",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x7ecc6bdf1f6ec1c120e60c3519f5b0b61613dca1",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x8278b450f6c3635d9609f1865fab98b209e5a6f7",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x83139696cdf65c9fe2bbad6514130ca0f4a503f0",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x8367d2bec7603c06629c15f1b8f6f287caa7c537",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x83fb3ba8b4fac9c6e5166a8da29d610708176a54",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x84997667e15cff4a5581209853519cf038e14395",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x883abdea071283f9a375b78b578ab0f5aa49a8ad",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x8bb0049b962ceb9ab398ed4827e7f90e5fec1e9e",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x8e388c7194e3a69eb4eabb350fd035f97ceed0be",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x9045e4be2d0f9ed128eaac650bb44a4439377f56",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x90a9b2bd6c8bc39ffc51e9b4da01716fca078a2a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x914fcd1c13a2208765d1602b53bebfee323f84e0",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x926b50888d99057a163e4e29005a62a3bd4d1eaa",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x931ae495ebfa3be674e567179db9bb6356249dd7",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x94c1ec138a8a43d0ccac9e5caabf4082a5f2b4b0",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x9750efee35e1cd416ac0fc2791868e80f6d211e8",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x97d0f38a93ae264d65f539cad86c7bc3f7def7d7",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x99d030970b404d9e22063a479a91eb8366ae6506",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x99ffdbb7fbe7217176fb92b2c2e3d01cf1fcac0a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x9a1066feec0822996875a28a3d4e058175af6c92",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x9d42eba8868cfd38a50ba615ee0cf903f1bbece9",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x9d85062c4546f3d97645fc93eb684a24c06edabe",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x9ff4a9c2db8801db3bb85bf4621cf573826ec3df",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa12871853f653f76ec303b94ac4fb6c46578a3f1",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa19f621581dbc851a21d6179868111709a52accc",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa1a36bb1ddf7cdd60a825cbc403e545fffac60f5",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa22b360f177e5ef68405b74141479b8309618acc",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa44fd40db1c77736b85fde14a46ba7016cf61a4a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa55a46ae8bdcdcf677ce4db10abe53085e216ec4",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa6c04ce7327425048a9362a43a99b7d41a98335a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa76745b612995d7b4e4e80e8b71c2956732a4731",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa7d0eb508dbbd434545d8bb3574fdb827a615aee",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xa9f985b22d9f76a89dedce26cf9cc4bf39bf34a8",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xac268281123b6fdbddf1143a3a4bdbde212f10dd",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xaf159e190de067515c70fc006e4345e232de5c4a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xb05e4d9dd848e4a755a00d518e4b2b7fa814e84c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xb327434de54b9b5d9a8f1f599cef6b25f06fcfa0",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xb83be19a6f16bb7643ecd015afbe14d8a35375cc",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xb9148cd4157ad89691f86b762e9e1a166b788d45",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xb983cba36301ddcb4f5b5de47387fdb748f96779",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xbc93df3be684047f16cad81be1460160de0f4874",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xbf2f1213f47e76f1c1d9b7a536f2cb8b347d59b4",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc1bf466db6113f720e2930b6931593cf20bf8b83",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc3027b6f3dcc41188727e85e6dc78a41c13dafb8",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc343c622d816275efef6639706be14bb32b4b868",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc3b5b96e00b36ad8dfc97eb47b65bcc61a29d164",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc4985c1ecaf9d7cc91727e32cf28bba1e002254a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc4e64a4e5617052e6e2a1a8a565915a1875f47b6",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc58bb475ceeb02ed4dd8cee27e69e0e6db76777c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc8bffaa8c6ae89996394ded7c35b0cba3cd417d3",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc9a95598fe92631ae21c2e28dd93ab091806a99c",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xc9c7b38c0942914fc8ea12063bc92dcd3b581670",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xca7e348934a24a4b488ce39e278825605053bb05",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xcb4cf336349504e167c26d5c8b9238e12d70bbb8",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xce3ecd36469e4dc4224bceb74ebe62eccc04c63b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xd22213f40472ee886fcc25eeef8432e326e1e6c3",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xd2e5577884a94177104331af662b084c24ec078b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xd87f093e7ac168006bbae672242ba9dbd5e20993",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xd95c2d2c7d57a20ae7f72394b3d83195524c3764",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xdd060eea0451203e6f9238495b941e42cf7dd9e1",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xddf44350ff7e0f5ea6bbf576158e0db2a0f8021e",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xdfabc1771c66a6d7c387165ac108e82e26ee947e",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xe0668777dd516be80d5b23b4eea2822a76d26954",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xe62923133a417cee4241677865ed5a63f44f4b54",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xe8273a7aea1a99639801dbe8767429f0126150a0",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xec2abd3eda89bed90124736e317e847d5fb6d034",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xecbe70d397c633511d92baf677a674acf49f6f93",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xefa9f8a2e77418da4ad2e0536f95a8afa3a279af",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf04ea4b3807221195910b93bd4b296051d017c0a",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf10a77d6d7ca4ad964c7e0453765bb9ff2d04d53",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf1f15ab1b66377d6d60b8938a737122551be57f9",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf2a3fd7a54b91e1efe2f427afdf574903a1d3bff",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf435efe736be7d8d44f2e6c815b6e5f75f08e7bc",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf57fc601ec32dc7feab6b838d14af10faae6d495",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xf88cc35f6847d438963456d39d902877f5432146",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xfae84cfe1b5e02448d274350753bd06305b0119b",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0xfc8a53ccffb051afcb9c7aa8656894988b5b58b9",
+   "group": "r12_probe149",
+   "label": "crawler/prober"
+  },
+  {
+   "address": "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0",
+   "group": "spray4",
+   "label": "nohumans-scout"
+  },
+  {
+   "address": "0x7722dfae6bbed2fd02dc07455c2f5bf14be25e4a",
+   "group": "spray4",
+   "label": "LumiTrustBuyer"
+  },
+  {
+   "address": "0x82cef1cdc34d65cf690235dc24e823a6585a6f86",
+   "group": "spray4",
+   "label": "paying-x402-crawler"
+  },
+  {
+   "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+   "group": "spray4",
+   "label": "SettledScout"
+  }
+ ]
+}

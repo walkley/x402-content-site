@@ -1,0 +1,409 @@
+{
+ "schema": 1,
+ "pay_to": "0x4348df1befaffcba248b5118b1b782b1b2bded14",
+ "generated_at": "2026-11-25T03:27:56.796Z",
+ "window": {
+  "from_block": 53078908,
+  "to_block": 61743941,
+  "from": "2026-10-25T16:52:43.000Z",
+  "to": "2026-11-24T16:52:43.000Z"
+ },
+ "listing": {
+  "snapshot": "2026-11-24",
+  "cdp": false,
+  "payai": true,
+  "hosts": [
+   "api.pacta.wtf",
+   "pacta-x402.pacta.workers.dev",
+   "pacta.fractalneurons.com"
+  ],
+  "resources": 6
+ },
+ "totals": {
+  "payers": 18,
+  "tx": 75,
+  "usd": 2.1109
+ },
+ "by_label": {
+  "probe": {
+   "payers": 0,
+   "tx": 0,
+   "usd": 0
+  },
+  "self": {
+   "payers": 10,
+   "tx": 59,
+   "usd": 1.94
+  },
+  "fleet": {
+   "payers": 0,
+   "tx": 0,
+   "usd": 0
+  },
+  "real": {
+   "payers": 1,
+   "tx": 9,
+   "usd": 0.0009
+  },
+  "once": {
+   "payers": 7,
+   "tx": 7,
+   "usd": 0.17
+  }
+ },
+ "large_transfers": {
+  "tx": 2,
+  "usd": 98.864
+ },
+ "facilitators": {
+  "payai": 17,
+  "unknown": 1
+ },
+ "probe_list": {
+  "wallets": 164,
+  "source": "x402-content-site data/payer-audit/probe-wallets.json"
+ },
+ "payers": [
+  {
+   "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "label": "self",
+   "reason": "funded $98.934 by the payTo",
+   "tx": 14,
+   "usd": 0.69,
+   "days": 6,
+   "first_day": "2026-11-18",
+   "last_day": "2026-11-24",
+   "funders": [
+    {
+     "address": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+     "usd": 210.1135,
+     "kind": "hot_wallet"
+    },
+    {
+     "address": "0x4348df1befaffcba248b5118b1b782b1b2bded14",
+     "usd": 98.934,
+     "kind": "pay_to"
+    },
+    {
+     "address": "0xd0b53d9277642d899df5c87a3966a349a798f224",
+     "usd": 0.0106,
+     "kind": "contract"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0xd8d6fbba5d0a8b3afaec0eca62656e69fad4a9b7",
+   "label": "self",
+   "reason": "funded $1 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 4,
+   "usd": 0.37,
+   "days": 1,
+   "first_day": "2026-11-21",
+   "last_day": "2026-11-21",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 1,
+     "kind": "eoa"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0xf8d0550fa886f09853b0cb7b1adcdd15b2af1ab0",
+   "label": "self",
+   "reason": "funded $10 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 7,
+   "usd": 0.17,
+   "days": 2,
+   "first_day": "2026-11-21",
+   "last_day": "2026-11-22",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 10,
+     "kind": "eoa"
+    },
+    {
+     "address": "0xa28aedccdf8e1eb2d234e52df200a29fb84091b7",
+     "usd": 3.88,
+     "kind": "eoa"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x979811e3745ff46cbb57066251f1aee0c1b24055",
+   "label": "self",
+   "reason": "funded $9 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 7,
+   "usd": 0.14,
+   "days": 3,
+   "first_day": "2026-11-21",
+   "last_day": "2026-11-23",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 9,
+     "kind": "eoa"
+    },
+    {
+     "address": "0x672f00bab14defc00bef12a2fb93533ede40a32d",
+     "usd": 0.02,
+     "kind": "eoa"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x95b4338a3fce74c1b8ccbc9e17a6c323f7795059",
+   "label": "self",
+   "reason": "funded $3 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 5,
+   "usd": 0.13,
+   "days": 1,
+   "first_day": "2026-11-23",
+   "last_day": "2026-11-23",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 3,
+     "kind": "eoa"
+    },
+    {
+     "address": "0x0406ddb6aaa1bfef8c0476995e8a11c1bfc7dd2d",
+     "usd": 0.1758,
+     "kind": "eip7702"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0xe0a3aae6e7d042f42e82830f4eebf426cc1270a2",
+   "label": "self",
+   "reason": "funded $42 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 6,
+   "usd": 0.12,
+   "days": 2,
+   "first_day": "2026-11-21",
+   "last_day": "2026-11-22",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 42,
+     "kind": "eoa"
+    },
+    {
+     "address": "0xaa9183875e9e0002d9ba69a186a6081d50174746",
+     "usd": 1,
+     "kind": "eoa"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x3fff807b33695a45707f381cdd60bf1d8deb8353",
+   "label": "self",
+   "reason": "funded $9 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 6,
+   "usd": 0.12,
+   "days": 2,
+   "first_day": "2026-11-22",
+   "last_day": "2026-11-23",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 9,
+     "kind": "eoa"
+    },
+    {
+     "address": "0x404018c829a4e5ac5f703d1eb0b942ae7852017f",
+     "usd": 4.05,
+     "kind": "eoa"
+    },
+    {
+     "address": "0x26572ff23c6c52bfb1a69cb0c9114a8be443b422",
+     "usd": 4,
+     "kind": "contract"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x8114ecb579270283ce21683e0bb7f94c9c9492b1",
+   "label": "self",
+   "reason": "funded $7 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 5,
+   "usd": 0.1,
+   "days": 2,
+   "first_day": "2026-11-22",
+   "last_day": "2026-11-23",
+   "funders": [
+    {
+     "address": "0xce43851485f437005ef3c1821e250c4d3c53b946",
+     "usd": 29.6,
+     "kind": "contract"
+    },
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 7,
+     "kind": "eoa"
+    },
+    {
+     "address": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+     "usd": 5.014,
+     "kind": "hot_wallet"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0xfd25cd317fd74585e09f01da846c430749881a76",
+   "label": "self",
+   "reason": "funded $3 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 3,
+   "usd": 0.06,
+   "days": 1,
+   "first_day": "2026-11-22",
+   "last_day": "2026-11-22",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 3,
+     "kind": "eoa"
+    },
+    {
+     "address": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+     "usd": 2.9324,
+     "kind": "hot_wallet"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x3e79bb63985aae12bd0979e544990245939b1da4",
+   "label": "once",
+   "reason": "1 payments on 1 day(s)",
+   "tx": 1,
+   "usd": 0.05,
+   "days": 1,
+   "first_day": "2026-11-21",
+   "last_day": "2026-11-21",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x4ac77b91d00e4e7707868ffabef8a544637fe6b0",
+   "label": "self",
+   "reason": "funded $2 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "tx": 2,
+   "usd": 0.04,
+   "days": 1,
+   "first_day": "2026-11-23",
+   "last_day": "2026-11-23",
+   "funders": [
+    {
+     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+     "usd": 2,
+     "kind": "eoa"
+    },
+    {
+     "address": "0x171d8021b98c53dcbb3c9c30cbbbeb1b01850fca",
+     "usd": 0.72,
+     "kind": "eoa"
+    },
+    {
+     "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+     "usd": 0.25,
+     "kind": "eoa"
+    }
+   ],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x68ee2fe2d947d40db783d62cfa4f0781eab12a5e",
+   "label": "once",
+   "reason": "1 payments on 1 day(s)",
+   "tx": 1,
+   "usd": 0.02,
+   "days": 1,
+   "first_day": "2026-11-21",
+   "last_day": "2026-11-21",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x10cf9160ab30828b2c43a22157b74403b0cbc51a",
+   "label": "once",
+   "reason": "1 payments on 1 day(s)",
+   "tx": 1,
+   "usd": 0.02,
+   "days": 1,
+   "first_day": "2026-11-22",
+   "last_day": "2026-11-22",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x7edac178137184cb0a3e291cfaefacfe138137bb",
+   "label": "once",
+   "reason": "1 payments on 1 day(s)",
+   "tx": 1,
+   "usd": 0.02,
+   "days": 1,
+   "first_day": "2026-11-22",
+   "last_day": "2026-11-22",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0xa28aedccdf8e1eb2d234e52df200a29fb84091b7",
+   "label": "once",
+   "reason": "1 payments on 1 day(s)",
+   "tx": 1,
+   "usd": 0.02,
+   "days": 1,
+   "first_day": "2026-11-23",
+   "last_day": "2026-11-23",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x459216fb900ee93fd391f669a0571cf08f949522",
+   "label": "once",
+   "reason": "1 payments on 1 day(s)",
+   "tx": 1,
+   "usd": 0.02,
+   "days": 1,
+   "first_day": "2026-11-23",
+   "last_day": "2026-11-23",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0x0f40fef975123a67d22faf0f526175c92ff17e00",
+   "label": "once",
+   "reason": "1 payments on 1 day(s)",
+   "tx": 1,
+   "usd": 0.02,
+   "days": 1,
+   "first_day": "2026-11-24",
+   "last_day": "2026-11-24",
+   "funders": [],
+   "facilitator": "payai"
+  },
+  {
+   "address": "0xca4e1ec3b537393cf196ec71fd150c31bc8bda09",
+   "label": "real",
+   "reason": "9 payments on 4 days",
+   "tx": 9,
+   "usd": 0.0009,
+   "days": 4,
+   "first_day": "2026-11-21",
+   "last_day": "2026-11-24",
+   "funders": [],
+   "facilitator": "unknown:0xdf97d92d6d9e5acef8f277e516bd92c79ca9b89d"
+  }
+ ]
+}

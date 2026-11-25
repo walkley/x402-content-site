@@ -8,6 +8,8 @@ import type { HTTPRequestContext } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { bodyLimit } from "hono/body-limit";
+import { compress } from "hono/compress";
+import { evmPaywall } from "@x402/paywall/evm";
 import { cors } from "hono/cors";
 import { InputError, MAX_RANGE_DAYS, chinaThisMonth, chinaToday } from "./calendar.js";
 import { ECOSYSTEMS, MAX_BATCH, OsvClient, UpstreamError, parseBatch, parsePackageQuery } from "./advisories.js";
@@ -40,10 +42,38 @@ import {
   SEC_TAGS,
 } from "./content-sec.js";
 import { calendar } from "./data.js";
+import {
+  PAYER_AUDIT_DESCRIPTION,
+  PAYER_AUDIT_EXAMPLE_INPUT,
+  PAYER_AUDIT_INPUT_SCHEMA,
+  PAYER_AUDIT_OUTPUT_SCHEMA,
+  auditDetail,
+  auditPreview,
+  auditStoreFromEnv,
+  notIndexed,
+  parsePayTo,
+  type AuditRecord,
+  type AuditStore,
+} from "./payer-audit.js";
+import auditExample from "./payer-audit-example.json";
+import {
+  REPORT,
+  REPORT_DESCRIPTION,
+  REPORT_FULL_PATH,
+  REPORT_JSON_DESCRIPTION,
+  REPORT_JSON_EXAMPLE_OUTPUT,
+  REPORT_JSON_OUTPUT_SCHEMA,
+  REPORT_JSON_PATH,
+  REPORT_PATH,
+  REPORT_TITLE,
+  reportBusyHtml,
+  reportFullHtml,
+  reportSummaryHtml,
+} from "./report.js";
 import { MAX_FILINGS_LIMIT, SecClient, parseCompanyQuery, parseFilingsQuery, secUserAgent } from "./sec.js";
 import { FunnelLogger, type FunnelEvent } from "./funnel.js";
 import { MCP_SRC, PAID_MCP_PATH, ipHashOf, mcpHandler, mcpManifest, mcpRequestLog } from "./mcp.js";
-import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
+import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, paywallCapFromEnv, quotaFromEnv, type DailyCap, type FreeQuota } from "./quota.js";
 import {
   CDP_FACILITATOR_URL,
   FACILITATOR_URLS,
@@ -72,6 +102,7 @@ import {
   previewHtml,
   skillMd,
   type PriceInfo,
+  AUDIT_TAG,
 } from "./content.js";
 
 export const DEFAULT_NETWORK = "eip155:84532"; // Base Sepolia
@@ -82,6 +113,39 @@ export const ADVISORIES_PRICE = "$0.005";
 export const BATCH_PRICE = "$0.02";
 export const INSIDER_TRADES_PRICE = "$0.003";
 export const LATEST_FILINGS_PRICE = "$0.003";
+export const PAYER_AUDIT_PRICE = "$0.05";
+export const REPORT_HTML_PRICE = "$2";
+export const REPORT_JSON_PRICE = "$0.5";
+export const PAYER_AUDIT_PATH = "/x402/payer-audit";
+export const PAYER_AUDIT_PREVIEW_PATH = "/x402/payer-audit/preview";
+export const AUDIT_SERVICE_NAME = AUDIT_TAG;
+export const AUDIT_TAGS = ["x402", "analytics", "payments", "base", "usdc", "seller-tools"];
+
+/**
+ * The page @x402/core 2.32.0 serves a browser on a paid route when @x402/paywall cannot be loaded (its
+ * FALLBACK_PAYWALL_HTML, copied). That is what the six original paid routes serve today in Lambda, where the dynamic
+ * import of @x402/paywall fails; passing it as their paywall keeps it that way now that the package is installed for the
+ * report route. test/paid-402-baseline.test.ts compares it with the page captured before this change.
+ */
+const BASIC_402_HTML = `<!DOCTYPE html>
+<html>
+  <head>
+    <title>Payment Required</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body>
+    <div style="max-width: 600px; margin: 50px auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;">
+      <h1>Payment Required</h1>
+      <p>This resource is protected by the x402 payment protocol.</p>
+      <p style="margin-top: 2rem; padding: 1rem; background: #fef3c7; border-radius: 0.5rem;">
+        <strong>Note to developers:</strong> install <code>@x402/paywall</code> to enable
+        the in-browser wallet connection and payment UI. Programmatic clients should read
+        the payment requirements from the 402 response headers and JSON body.
+      </p>
+    </div>
+  </body>
+</html>`;
 
 export interface AppConfig {
   network: Network;
@@ -107,6 +171,10 @@ export interface AppConfig {
   quota?: FreeQuota;
   /** Origins allowed to call /mcp from a browser. Default none: a request with an Origin header gets 403. */
   mcpAllowedOrigins?: string[];
+  /** Payer audit data (S3 in Lambda). Unset: every payTo is a free 404 not_indexed. */
+  auditStore?: AuditStore;
+  /** Daily cap on browser paywall pages for the HTML report. Unset: no cap (local runs). */
+  paywallCap?: DailyCap;
 }
 
 /**
@@ -154,6 +222,8 @@ export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig 
     quota: quotaFromEnv(env, fetchSecret),
     // Comma-separated browser origins allowed to call /mcp; empty (the default) refuses every request with Origin.
     mcpAllowedOrigins: (env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean),
+    auditStore: auditStoreFromEnv(env),
+    paywallCap: paywallCapFromEnv(env),
   };
   if (kind === "cdp") {
     return { ...base, facilitatorUrl: CDP_FACILITATOR_URL, facilitatorConfig: cdpFacilitatorConfig(cdpCredentialLoader(env, fetchSecret)) };
@@ -246,7 +316,8 @@ const CN_DATE = () => `YYYY-MM-DD, ${calendar.firstDate}..${calendar.lastDate}`;
 const SEC_COMPANY = "ticker (e.g. AAPL, BRK-B) or cik (1-10 digits, e.g. 320193), not both";
 
 /** Paid routes, their free pre-payment input validation, and the example shown when that validation fails. */
-const PAID_ROUTES: Record<string, { method: "GET" | "POST"; validate: (c: Context) => unknown; example: () => RouteExample }> = {
+type PaidRoute = { method: "GET" | "POST"; validate: (c: Context) => unknown; example: () => RouteExample };
+const PAID_ROUTES: Record<string, PaidRoute> = {
   "/cn/workday": {
     method: "GET",
     validate: (c) => calendar.lookup(workdayDate(c)),
@@ -335,8 +406,7 @@ async function quoteInBody(c: Context) {
   c.res = new Response(JSON.stringify({ x402Version, accepts, resource, ...rest }), { status: 402, headers });
 }
 
-function inputErrorResponse(c: Context, e: InputError, base: string) {
-  const route = PAID_ROUTES[c.req.path];
+function inputErrorResponse(c: Context, e: InputError, base: string, route: PaidRoute) {
   const { query, body, allowed } = route.example();
   const example = {
     method: route.method,
@@ -359,6 +429,28 @@ export function createApp(cfg: AppConfig) {
   const osv = cfg.osv ?? new OsvClient();
   // Deployments always set PUBLIC_BASE_URL (infra); the fallback only matters for local runs.
   const sec = cfg.sec ?? new SecClient(secUserAgent(cfg.publicBaseUrl ?? "http://localhost"));
+  const auditStore = cfg.auditStore ?? auditStoreFromEnv({});
+  /** The payTo's record, read once per request (validation before payment, then the handler). Missing is a free 404. */
+  const loadAudit = async (c: Context, allowed = ["payTo", "src"]): Promise<AuditRecord> => {
+    const cached = c.get("audit") as AuditRecord | undefined;
+    if (cached) return cached;
+    const payTo = parsePayTo(knownQuery(c, allowed).payTo);
+    const record = await auditStore.get(payTo);
+    if (!record) throw notIndexed(payTo);
+    c.set("audit", record);
+    return record;
+  };
+  const noParams = (c: Context) => knownQuery(c, ["src"]);
+  const paidRoutes: Record<string, PaidRoute> = {
+    ...PAID_ROUTES,
+    [PAYER_AUDIT_PATH]: {
+      method: "GET",
+      validate: (c) => loadAudit(c),
+      example: () => ({ query: new URLSearchParams(PAYER_AUDIT_EXAMPLE_INPUT).toString(), allowed: { payTo: "0x + 40 hex digits: the payTo in your x402 accepts (Base)" } }),
+    },
+    [REPORT_JSON_PATH]: { method: "GET", validate: noParams, example: () => ({ allowed: { src: "optional, ignored" } }) },
+    [REPORT_FULL_PATH]: { method: "GET", validate: noParams, example: () => ({ allowed: { src: "optional, ignored" } }) },
+  };
   // Correlates x402 hook callbacks (which only see the request context) with the HTTP request.
   // Keyed by the payment header string; entries are removed when the request finishes.
   const inflight = new Map<string, RequestMeta>();
@@ -541,13 +633,61 @@ export function createApp(cfg: AppConfig) {
         output: { example: LATEST_FILINGS_EXAMPLE_OUTPUT, schema: LATEST_FILINGS_OUTPUT_SCHEMA },
       }),
     },
+    [`GET ${PAYER_AUDIT_PATH}`]: {
+      accepts: accepts(PAYER_AUDIT_PRICE),
+      ...listing(PAYER_AUDIT_PRICE, { method: "GET", path: `${PAYER_AUDIT_PATH}?${new URLSearchParams(PAYER_AUDIT_EXAMPLE_INPUT)}` }, auditExample),
+      description: PAYER_AUDIT_DESCRIPTION,
+      mimeType: "application/json",
+      serviceName: AUDIT_SERVICE_NAME,
+      tags: AUDIT_TAGS,
+      extensions: declareDiscoveryExtension({
+        input: PAYER_AUDIT_EXAMPLE_INPUT,
+        inputSchema: PAYER_AUDIT_INPUT_SCHEMA,
+        output: { example: auditExample, schema: PAYER_AUDIT_OUTPUT_SCHEMA },
+      }),
+    },
+    [`GET ${REPORT_JSON_PATH}`]: {
+      accepts: accepts(REPORT_JSON_PRICE),
+      ...listing(REPORT_JSON_PRICE, { method: "GET", path: REPORT_JSON_PATH }, REPORT_JSON_EXAMPLE_OUTPUT),
+      description: REPORT_JSON_DESCRIPTION,
+      mimeType: "application/json",
+      serviceName: AUDIT_SERVICE_NAME,
+      tags: AUDIT_TAGS,
+      extensions: declareDiscoveryExtension({
+        input: {},
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        output: { example: REPORT_JSON_EXAMPLE_OUTPUT, schema: REPORT_JSON_OUTPUT_SCHEMA },
+      }),
+    },
+    [`GET ${REPORT_FULL_PATH}`]: {
+      accepts: accepts(REPORT_HTML_PRICE),
+      description: REPORT_DESCRIPTION,
+      mimeType: "text/html",
+      serviceName: AUDIT_SERVICE_NAME,
+      tags: AUDIT_TAGS,
+    },
   };
 
   // The library's default (syncFacilitatorOnStart) starts GET /supported at module load and never waits for it. When
   // the instance's first request is free, Lambda freezes the instance with that request in flight; its 90 s abort
   // timer then fires on wake and the next paid request got a 502. We sync ourselves instead: during Lambda init
   // (lambda.ts awaits initFacilitator), and again before a paid request if that did not succeed.
-  const httpServer = new x402HTTPResourceServer(server, routes);
+  // Browsers on the HTML report get the official x402 paywall (wallet connect, USDC balance, EIP-3009 signature in the
+  // browser); testnet follows the network, so Base mainnet shows mainnet. No CDP key: the paywall config has none. The
+  // page loads the Coinbase Wallet / Base Account SDK (keys.coinbase.com popup when that wallet is picked); its default
+  // usage telemetry to cca-lite.coinbase.com is switched off by paywallWithoutTelemetry. Every other paid route keeps
+  // BASIC_402_HTML.
+  // Only @x402/paywall/evm is imported (2.5 MB); the package root bundles the Solana and Algorand pages too (7.8 MB).
+  const paywallConfig = { appName: REPORT_TITLE, testnet: cfg.network !== MAINNET_NETWORK };
+  const httpServer = new x402HTTPResourceServer(server, routes).registerPaywallProvider({
+    generateHtml: (required) => {
+      const path = required.resource?.url ? new URL(required.resource.url).pathname : "";
+      const [requirement] = required.accepts;
+      return path === REPORT_FULL_PATH && requirement && evmPaywall.supports(requirement)
+        ? paywallWithoutTelemetry(evmPaywall.generateHtml(requirement, required, paywallConfig))
+        : BASIC_402_HTML;
+    },
+  });
   const initTimeoutMs = cfg.facilitatorInitTimeoutMs ?? FACILITATOR_INIT_TIMEOUT_MS;
   let synced = false;
   /** Set when the facilitator answered but our routes do not fit it: a bug or a config error, retrying cannot help. */
@@ -591,7 +731,7 @@ export function createApp(cfg: AppConfig) {
   // request gets a free 400/404 instead of a 402 the agent would pay for and then fail.
   // A bare request without a payment is quoted (402) unvalidated; with a payment it is validated, so it is never charged.
   const funnelAndValidate: MiddlewareHandler = async (c, next) => {
-    const paid = PAID_ROUTES[c.req.path];
+    const paid = paidRoutes[c.req.path];
     if (!paid || c.req.method !== paid.method) return next();
     const log = isMcpQuote(c) ? () => {} : (e: FunnelEvent) => funnel.log(e);
     const meta: RequestMeta = {
@@ -606,9 +746,14 @@ export function createApp(cfg: AppConfig) {
     try {
       if (paymentHeader || !(await isBareRequest(c, paid.method))) await paid.validate(c);
     } catch (e) {
+      if (e instanceof UpstreamError) {
+        // Data the route needs is unreadable (payer audit S3): a free 502 before any payment is verified.
+        log({ stage: "request", ...meta, ...tags, status: 502, reason: `upstream: ${e.message}` });
+        return c.json({ error: "upstream_unavailable", message: `${e.message}. You were not charged; retry later.` }, 502);
+      }
       if (!(e instanceof InputError)) throw e;
       log({ stage: "request", ...meta, ...tags, status: e.status, reason: `rejected_input: ${e.code}` });
-      return inputErrorResponse(c, e, baseUrl(c));
+      return inputErrorResponse(c, e, baseUrl(c), paid);
     }
     log({ stage: "request", ...meta, ...tags });
     if (paymentHeader) {
@@ -654,6 +799,9 @@ export function createApp(cfg: AppConfig) {
     batchPrice: BATCH_PRICE,
     insiderTradesPrice: INSIDER_TRADES_PRICE,
     latestFilingsPrice: LATEST_FILINGS_PRICE,
+    payerAuditPrice: PAYER_AUDIT_PRICE,
+    reportJsonPrice: REPORT_JSON_PRICE,
+    reportHtmlPrice: REPORT_HTML_PRICE,
     freePerIpDaily: cfg.quota?.perIpDaily ?? FREE_PER_IP_DAILY,
   };
   const freeLimits = { perIpDaily: prices.freePerIpDaily, globalDaily: cfg.quota?.globalDaily ?? FREE_GLOBAL_DAILY };
@@ -741,13 +889,63 @@ export function createApp(cfg: AppConfig) {
     if (routeKey !== undefined && routeKey !== `GET ${raw}`) return c.json({ error: "not_found" }, 404);
     return next();
   });
+  // Free routes under the paid prefixes answer here, before the facilitator gate and the payment middleware.
+  const auditError = (c: Context, e: unknown) => {
+    if (e instanceof InputError) {
+      return c.json({ error: e.code, message: e.message, example: { method: "GET", url: `${baseUrl(c)}${PAYER_AUDIT_PREVIEW_PATH}?${new URLSearchParams(PAYER_AUDIT_EXAMPLE_INPUT)}` } }, e.status);
+    }
+    if (e instanceof UpstreamError) return c.json({ error: "upstream_unavailable", message: `${e.message}. Retry later.` }, 502);
+    throw e;
+  };
+  app.get(PAYER_AUDIT_PREVIEW_PATH, async (c) => {
+    try {
+      return c.json(auditPreview(await loadAudit(c, ["payTo"])));
+    } catch (e) {
+      return auditError(c, e);
+    }
+  });
+  const reportPrices = { html: REPORT_HTML_PRICE, json: REPORT_JSON_PRICE };
+  app.get(REPORT_PATH, (c) => c.html(reportSummaryHtml(baseUrl(c), reportPrices)));
+  // The browser paywall page is 2.5 MB of script, 0.68 MB gzipped (Lambda base64-encodes it). Egress bound: an unpaid
+  // browser request gets it only if it accepts gzip and today's PAYWALL_DAILY renders are not used up; otherwise a
+  // 1 KB page pointing to the summary and the JSON version. Worst case 2,000 x 0.68 MB = 1.4 GB a day.
+  app.use(REPORT_FULL_PATH, compress());
+  app.use(REPORT_FULL_PATH, async (c, next) => {
+    const paying = c.req.header("payment-signature") || c.req.header("x-payment");
+    const browser = (c.req.header("accept") ?? "").includes("text/html") && (c.req.header("user-agent") ?? "").includes("Mozilla");
+    if (paying || !browser) return next();
+    if (!/\bgzip\b/i.test(c.req.header("accept-encoding") ?? "")) {
+      return c.html(reportBusyHtml(baseUrl(c), "Your client does not accept gzip, which the payment page needs."), 406);
+    }
+    let allowed = true;
+    try {
+      allowed = cfg.paywallCap ? await cfg.paywallCap.take() : true;
+    } catch {
+      allowed = false; // counter unavailable: fail closed, the small page costs nothing
+    }
+    if (!allowed) {
+      return c.html(reportBusyHtml(baseUrl(c), "Today's payment page limit is reached. Try again after 00:00 UTC."), 429, { "Retry-After": "3600" });
+    }
+    return next();
+  });
+
   const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
-  for (const prefix of ["/cn/*", "/deps/*", "/sec/*"]) {
+  for (const prefix of ["/cn/*", "/deps/*", "/sec/*", "/x402/*", "/reports/*"]) {
     app.use(prefix, (_c, next) => deadline.run(Date.now() + requestDeadlineMs, next));
     app.use(prefix, funnelAndValidate);
     app.use(prefix, facilitatorGate);
     app.use(prefix, payment);
   }
+
+  app.get(PAYER_AUDIT_PATH, async (c) => {
+    try {
+      return c.json(auditDetail(await loadAudit(c)));
+    } catch (e) {
+      return upstreamFailure(c, e);
+    }
+  });
+  app.get(REPORT_JSON_PATH, (c) => c.json(REPORT));
+  app.get(REPORT_FULL_PATH, (c) => c.html(reportFullHtml()));
 
   app.get("/cn/workday", (c) => c.json({ ...calendar.lookup(workdayDate(c)), data_updated: calendar.dataUpdated }));
   app.get("/cn/business-days", (c) => {
@@ -806,6 +1004,19 @@ export function createApp(cfg: AppConfig) {
     await cfg.quota?.init?.();
   };
   return Object.assign(app, { initFacilitator, initQuota });
+}
+
+/**
+ * The paywall's Coinbase Wallet connector is built without a preference, so the Base Account SDK sends usage
+ * telemetry (Amplitude, deviceId) to cca-lite.coinbase.com as soon as the page loads. The SDK skips it when
+ * preference.telemetry is false; the paywall has no option for that, so the connector call in the prebuilt page is
+ * rewritten. Throws if @x402/paywall changed the call, so an upgrade cannot silently turn telemetry back on
+ * (test/payer-audit.test.ts renders the page).
+ */
+export const PAYWALL_CONNECTOR = 'TE({appName:window.x402.appName||"x402 Paywall"})';
+export function paywallWithoutTelemetry(html: string): string {
+  if (!html.includes(PAYWALL_CONNECTOR)) throw new Error("@x402/paywall connector call not found; cannot turn off its telemetry");
+  return html.replace(PAYWALL_CONNECTOR, () => 'TE({appName:window.x402.appName||"x402 Paywall",preference:{options:"all",telemetry:!1}})');
 }
 
 /** Rejects after ms; the abandoned promise keeps running and its result is ignored. */

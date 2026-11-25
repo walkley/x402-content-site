@@ -50,13 +50,15 @@ describe("ApiStack", () => {
   });
 
   it("gives POST /mcp, POST /paid/mcp and the SEC routes their own routes on the same integration and throttles, other paid routes unchanged", () => {
-    template.resourceCountIs("AWS::ApiGatewayV2::Route", 6);
+    template.resourceCountIs("AWS::ApiGatewayV2::Route", 8);
     template.resourceCountIs("AWS::ApiGatewayV2::Integration", 1);
     const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route"));
     const byKey = new Map(routes.map((r) => [r.Properties.RouteKey as string, r.Properties]));
     expect([...byKey.keys()].sort()).toEqual([
       "$default",
+      "ANY /reports/{proxy+}",
       "ANY /sec/{proxy+}",
+      "ANY /x402/{proxy+}",
       "GET /sec/insider-trades",
       "GET /sec/latest-filings",
       "POST /mcp",
@@ -74,6 +76,8 @@ describe("ApiStack", () => {
       "ANY /sec/{proxy+}": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 1 },
       "GET /sec/insider-trades": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 1 },
       "GET /sec/latest-filings": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 1 },
+      "ANY /x402/{proxy+}": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+      "ANY /reports/{proxy+}": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 2 },
     });
     expect(stage.Properties.DefaultRouteSettings).toEqual({ ThrottlingRateLimit: 10, ThrottlingBurstLimit: 20 });
     expect(stage.DependsOn).toContain(logicalId("AWS::ApiGatewayV2::Route", "McpRoute"));
@@ -127,11 +131,45 @@ describe("ApiStack", () => {
     });
   });
 
-  it("has no wildcard principal anywhere in the template", () => {
+  it("allows nothing to a wildcard principal (the only one is the payer audit bucket's deny of non-TLS requests)", () => {
     const json = JSON.stringify(template.toJSON());
-    expect(json).not.toMatch(/"Principal":"\*"/);
-    expect(json).not.toMatch(/"AWS":"\*"/);
     expect(json).not.toContain("InvokeFunctionUrl");
+    const statements: { Effect: string; Principal?: unknown; Condition?: unknown }[] = [];
+    const walk = (v: unknown) => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") {
+        const o = v as Record<string, unknown>;
+        if (Array.isArray(o.Statement)) statements.push(...(o.Statement as typeof statements));
+        Object.values(o).forEach(walk);
+      }
+    };
+    walk(template.toJSON());
+    const wildcard = statements.filter((st) => JSON.stringify(st.Principal ?? "").match(/^"\*"$|"AWS":"\*"/));
+    expect(wildcard).toHaveLength(1);
+    expect(wildcard[0]).toMatchObject({ Effect: "Deny", Condition: { Bool: { "aws:SecureTransport": "false" } } });
+  });
+});
+
+describe("payer audit data bucket", () => {
+  it("is private, encrypted, TLS only and kept on stack delete", () => {
+    template.resourceCountIs("AWS::S3::Bucket", 1);
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } }] },
+      OwnershipControls: { Rules: [{ ObjectOwnership: "BucketOwnerEnforced" }] },
+    });
+    const [bucket] = Object.values(template.findResources("AWS::S3::Bucket"));
+    expect(bucket.DeletionPolicy).toBe("Retain");
+  });
+
+  it("the API function may only read it (payer-audit/ objects), and gets its name and prefix", () => {
+    const fn = template.findResources("AWS::Lambda::Function")[apiFnId];
+    expect(fn.Properties.Environment.Variables).toMatchObject({ PAYER_AUDIT_PREFIX: "payer-audit/", PAYER_AUDIT_BUCKET: { Ref: expect.stringMatching(/^PayerAuditData/) } });
+    const s3Actions = Object.values(template.findResources("AWS::IAM::Policy"))
+      .flatMap((p) => p.Properties.PolicyDocument.Statement as { Action: string | string[]; Resource: unknown }[])
+      .filter((st) => [st.Action].flat().some((a) => a.startsWith("s3:")));
+    expect(s3Actions.flatMap((st) => [st.Action].flat()).filter((a) => /Put|Delete|Abort|Replicate|Restore|Tagging|Acl/.test(a))).toEqual([]);
+    expect(JSON.stringify(s3Actions)).toContain("/payer-audit/*");
   });
 });
 

@@ -10,6 +10,7 @@ import { AttributeType, BillingMode, Table } from "aws-cdk-lib/aws-dynamodb";
 import { PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { Architecture, Code, Function as LambdaFunction, LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
+import { BlockPublicAccess, Bucket, BucketEncryption, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Topic } from "aws-cdk-lib/aws-sns";
@@ -75,6 +76,19 @@ export const SEC_INSIDER_ROUTE_KEY = "GET /sec/insider-trades";
 export const SEC_FILINGS_ROUTE_KEY = "GET /sec/latest-filings";
 export const SEC_ROUTE_KEY = "ANY /sec/{proxy+}";
 export const SEC_THROTTLE = { rateLimit: 1, burstLimit: 1 };
+/**
+ * Payer audit (/x402/*) and report (/reports/*) routes: everything under each prefix, any method, on its own greedy
+ * route so a misspelt path or method also stays off $default's 10 rps. Egress of the report's browser paywall page
+ * (2,512,187 B plain, 676,855 B gzip, measured) is bounded in the app, not here: only gzip clients get it, at most
+ * PAYWALL_DAILY (2,000) a UTC day (DynamoDB counter in the quota table, fail closed), about 1.4 GB/day. Everything
+ * else on this route is under 50 KB a response: 1 rps x 86,400 x 50 KB is at most about 4.3 GB/day.
+ */
+export const AUDIT_ROUTE_KEY = "ANY /x402/{proxy+}";
+export const AUDIT_THROTTLE = { rateLimit: 2, burstLimit: 5 };
+export const REPORT_ROUTE_KEY = "ANY /reports/{proxy+}";
+export const REPORT_THROTTLE = { rateLimit: 1, burstLimit: 2 };
+/** S3 key prefix of the payer audit data (one JSON per payTo, written by scripts/payer-audit/build.ts --upload). */
+export const AUDIT_PREFIX = "payer-audit/";
 
 /** HTTP API access log line ($context variables; the query string is not logged). */
 export const ACCESS_LOG_FIELDS = {
@@ -171,6 +185,21 @@ export class ApiStack extends Stack {
     fn.addEnvironment("FREE_PER_IP_DAILY", String(props.freePerIpDaily));
     fn.addEnvironment("FREE_GLOBAL_DAILY", String(props.freeGlobalDaily));
 
+    // Payer audit data, rebuilt offline and uploaded by a person (scripts/payer-audit/build.ts --upload). Private,
+    // TLS only, S3-managed encryption; the API function may only read objects under AUDIT_PREFIX. Kept when the stack
+    // is deleted (RETAIN): it is rebuildable, but deleting a non-empty bucket would fail the stack delete.
+    const auditBucket = new Bucket(this, "PayerAuditData", {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    auditBucket.grantRead(fn, `${AUDIT_PREFIX}*`);
+    fn.addEnvironment("PAYER_AUDIT_BUCKET", auditBucket.bucketName);
+    fn.addEnvironment("PAYER_AUDIT_PREFIX", AUDIT_PREFIX);
+    new CfnOutput(this, "PayerAuditBucket", { value: auditBucket.bucketName });
+
     if (props.facilitator === "cdp") {
       // Read access to this one secret only (the ARN wildcard covers Secrets Manager's random suffix).
       Secret.fromSecretNameV2(this, "CdpApiKey", props.cdpSecretName).grantRead(fn);
@@ -214,6 +243,8 @@ export class ApiStack extends Stack {
     const secRoute = new CfnRoute(this, "SecRoute", { apiId: api.apiId, routeKey: SEC_ROUTE_KEY, target });
     const secInsiderRoute = new CfnRoute(this, "SecInsiderRoute", { apiId: api.apiId, routeKey: SEC_INSIDER_ROUTE_KEY, target });
     const secFilingsRoute = new CfnRoute(this, "SecFilingsRoute", { apiId: api.apiId, routeKey: SEC_FILINGS_ROUTE_KEY, target });
+    const auditRoute = new CfnRoute(this, "AuditRoute", { apiId: api.apiId, routeKey: AUDIT_ROUTE_KEY, target });
+    const reportRoute = new CfnRoute(this, "ReportRoute", { apiId: api.apiId, routeKey: REPORT_ROUTE_KEY, target });
     const stage = new HttpStage(this, "DefaultStage", {
       httpApi: api,
       stageName: "$default",
@@ -235,8 +266,10 @@ export class ApiStack extends Stack {
       [SEC_ROUTE_KEY]: secThrottle,
       [SEC_INSIDER_ROUTE_KEY]: secThrottle,
       [SEC_FILINGS_ROUTE_KEY]: secThrottle,
+      [AUDIT_ROUTE_KEY]: { ThrottlingRateLimit: AUDIT_THROTTLE.rateLimit, ThrottlingBurstLimit: AUDIT_THROTTLE.burstLimit },
+      [REPORT_ROUTE_KEY]: { ThrottlingRateLimit: REPORT_THROTTLE.rateLimit, ThrottlingBurstLimit: REPORT_THROTTLE.burstLimit },
     };
-    stage.node.addDependency(mcpRoute, paidMcpRoute, secRoute, secInsiderRoute, secFilingsRoute); // the stage's route settings name the routes, so they must exist first
+    stage.node.addDependency(mcpRoute, paidMcpRoute, secRoute, secInsiderRoute, secFilingsRoute, auditRoute, reportRoute); // the stage's route settings name the routes, so they must exist first
 
     // The app uses its public base URL in /openapi.json, /llms.txt, the 402 body and iconUrl.
     if (!props.publicBaseUrl) fn.addEnvironment("PUBLIC_BASE_URL", api.apiEndpoint);
