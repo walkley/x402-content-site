@@ -21,7 +21,16 @@ const AGENT = { "user-agent": "agent/1.0" };
 const BROWSER = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64)", accept: "text/html,application/xhtml+xml" };
 const GZ = { ...BROWSER, "accept-encoding": "gzip, deflate, br" };
 /** What the paywall page's own fetch sends after the wallet signed (plus the payment header). */
-const PAYWALL_FETCH = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64)", accept: "*/*", "sec-fetch-mode": "cors", "access-control-expose-headers": "PAYMENT-RESPONSE" };
+const PAYWALL_FETCH = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64)", accept: "*/*", "sec-fetch-mode": "cors", "sec-fetch-site": "same-origin", "access-control-expose-headers": "PAYMENT-RESPONSE" };
+/** The payment retry of @x402/fetch running in a browser on another origin (it sets Access-Control-Expose-Headers too). */
+const BROWSER_AGENT_FETCH = {
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64)",
+  accept: "*/*",
+  origin: "https://some-agent.example",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "cross-site",
+  "access-control-expose-headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE",
+};
 const SELLER_TOOLS = "Tools for x402 sellers (402 lint, listing checks, trust scores) had few non-probe payers: 1 to 5 each.";
 
 class Facilitator implements FacilitatorClient {
@@ -176,14 +185,17 @@ describe("payer audit in a browser", () => {
     expect(facilitator.settleCalls).toBe(1);
   });
 
-  it("a paid agent, even a browser-based one without the paywall's header, still gets JSON", async () => {
-    const { app } = setup();
-    for (const headers of [AGENT, { ...BROWSER, "sec-fetch-mode": "cors" }]) {
+  it("a paid agent, including @x402/fetch in a browser on another origin, still gets JSON", async () => {
+    const { app, facilitator } = setup();
+    const sameSite = { ...BROWSER_AGENT_FETCH, origin: "https://app.example.test", "sec-fetch-site": "same-site" };
+    const { "sec-fetch-site": _site, ...noSite } = BROWSER_AGENT_FETCH;
+    for (const headers of [AGENT, { ...BROWSER, "sec-fetch-mode": "cors" }, BROWSER_AGENT_FETCH, sameSite, noSite]) {
       const res = await paid(app, `/x402/payer-audit?payTo=${PACTA}`, "/x402/payer-audit", headers);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("application/json");
       expect((await res.json()).payers).toHaveLength(18);
     }
+    expect(facilitator.settleCalls).toBe(5);
   });
 });
 
@@ -211,6 +223,8 @@ describe("payer audit preview", () => {
     expect(html).toMatch(/<td>once<\/td><td>7<\/td>/);
     expect(html).toContain("<b>18</b> payers");
     expect(html).toContain("Example suggestion");
+    expect(html).toContain("After payment the full audit opens as a page in this tab.");
+    expect(html).not.toContain("opens as JSON");
     expect(html).toContain(`<a class="buy" href="https://api.example.test/x402/payer-audit?payTo=${PACTA}">See every payer, $0.05</a>`);
     expect(html).not.toContain("0xca4e2ff2"); // no payer addresses in the free page
     expect(html.length).toBeLessThan(8000);

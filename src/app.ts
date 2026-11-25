@@ -961,9 +961,11 @@ export function createApp(cfg: AppConfig) {
   app.get(PAYER_AUDIT_PATH, async (c) => {
     try {
       const detail = auditDetail(await loadAudit(c));
-      // The paywall page's own fetch after payment (it adds this request header; agents do not): it renders an HTML
-      // response in place but opens JSON as a raw blob, so the person who paid gets the readable page.
-      if (c.req.header("access-control-expose-headers") !== undefined && c.req.header("sec-fetch-mode") !== undefined) {
+      // The paywall page's own fetch after payment renders an HTML response in place but opens JSON as a raw blob, so
+      // the person who paid gets the readable page. That fetch sends Access-Control-Expose-Headers and, being from the
+      // page at this URL, Sec-Fetch-Site: same-origin. @x402/fetch sends the same header, so a browser-based agent on
+      // another origin (cross-site / same-site) keeps getting JSON, as before.
+      if (c.req.header("access-control-expose-headers") !== undefined && c.req.header("sec-fetch-site") === "same-origin") {
         return c.html(auditDetailHtml(baseUrl(c), detail));
       }
       return c.json(detail);

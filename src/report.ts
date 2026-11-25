@@ -218,7 +218,7 @@ ${suggestion ? `<h2>Example suggestion</h2><p>${esc(suggestion)}</p>` : ""}
 <p>The full audit lists every payer with label, reason, tx count, USD, funders and settling facilitator, the CDP / PayAI listing status, and all suggestions.</p>
 <p><a class="buy" href="${esc(paid)}">See every payer, ${esc(price)}</a></p>
 <p><small>${esc(preview.disclaimer)}</small></p>
-<p><small>Payment is an x402 USDC authorization on Base signed in your browser wallet (MetaMask or another EOA wallet). No account, no sign-up. The result opens as JSON.
+<p><small>Payment is an x402 USDC authorization on Base signed in your browser wallet (MetaMask or another EOA wallet). No account, no sign-up. After payment the full audit opens as a page in this tab.
 <a href="${esc(baseUrl + REPORT_PATH)}">Market report</a></small></p>`,
     AUDIT_TITLE,
   );
