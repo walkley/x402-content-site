@@ -13,12 +13,14 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1176.0",
+    "@aws-sdk/client-s3": "3.1176.0",
     "@aws-sdk/client-secrets-manager": "3.1176.0",
     "@coinbase/x402": "2.1.0",
     "@x402/core": "2.32.0",
     "@x402/evm": "2.32.0",
     "@x402/extensions": "2.32.0",
     "@x402/hono": "2.32.0",
+    "@x402/paywall": "2.32.0",
     "hono": "^4.13.21"
   },
   "devDependencies": {

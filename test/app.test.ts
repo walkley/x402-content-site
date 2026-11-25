@@ -486,6 +486,7 @@ describe("discovery metadata (x402scan / AgentCash)", () => {
       "## China Workday Calendar",
       "## Package Vulnerability Advisories",
       "## SEC EDGAR Insider Trades and Filings",
+      "## x402 seller payer audit and market report",
       "## Free",
     ]);
     expect(llms.match(/scheme "exact"/g)).toHaveLength(1);
