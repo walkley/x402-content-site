@@ -69,7 +69,7 @@ claude mcp add --transport http cn-calendar https://<origin>/mcp
 
 - `GET /x402/payer-audit/preview?payTo=0x...` (free): payer counts per label and the probe share for one Base payTo.
 - `GET /x402/payer-audit?payTo=0x...` ($0.05): every payer of the last 30 days labelled `probe` (wallet in `data/payer-audit/probe-wallets.json`, 164 wallets), `self` (funded by the payTo or by a wallet it funded), `fleet` (one EOA funder sent the same amount to 3+ payers; every payer it funded), `real` (3+ payments on 2+ days) or `once`, with funders, settling facilitator, CDP/PayAI listing and suggestions. A payTo not in the data is a free 404 before payment; unreadable data is a free 502.
-- `GET /reports/x402-real-payers` (free summary), `/reports/x402-real-payers/full` ($2, HTML; browsers get the official `@x402/paywall` EVM page, no CDP key), `/reports/x402-real-payers.json` ($0.5).
+- `GET /reports/x402-real-payers` (free summary), `/reports/x402-real-payers/full` ($2, HTML; browsers get the official `@x402/paywall` EVM page: no CDP key, it loads the Coinbase Wallet / Base Account SDK, whose usage telemetry the app switches off; only gzip clients get it, at most 2,000 pages a UTC day, `PAYWALL_DAILY`), `/reports/x402-real-payers.json` ($0.5).
 
 The audit data is built offline, one JSON per payTo, and read from the stack's private S3 bucket (output `PayerAuditBucket`, prefix `payer-audit/`; the function can only read it):
 

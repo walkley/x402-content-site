@@ -1,6 +1,7 @@
 // "Who really pays for x402": a fixed research report (numbers from research rounds r12, r21 and r23 of this project,
 // Base mainnet USDC, 2026-10-26..2026-11-25). Free summary page, $2 HTML body behind the x402 browser paywall, $0.5 JSON.
 import probeFile from "../data/payer-audit/probe-wallets.json";
+import { LABEL_DISCLAIMER } from "./payer-audit.js";
 
 export const REPORT_PATH = "/reports/x402-real-payers";
 export const REPORT_FULL_PATH = `${REPORT_PATH}/full`;
@@ -24,7 +25,7 @@ export const REPORT = {
     { metric: "transfers of $2 or less", value: 930_693 },
     { metric: "distinct paying addresses", value: 22_916 },
     { metric: "paying addresses with exactly 1 payment", value: 15_045 },
-    { metric: "probe / crawler wallets (rule below)", value: 149, usd: 1_146.19 },
+    { metric: "probe / crawler wallets found by rule (the 164-wallet list adds 15 known probe and test-buy wallets)", value: 149, usd: 1_146.19 },
     { metric: "repeat payers (3+ payments, 2+ days, a seller paid on 2+ days)", value: 2_888, usd: 9_721.44 },
     { metric: "independent operators after removing 17 large fleets", value: 779, wallets: 980, tx: 273_000, usd: 6_284 },
     { metric: "payTo with any payment", value: 2_745 },
@@ -36,8 +37,8 @@ export const REPORT = {
     "Most sellers' payment counts are probes: 2,353 of 2,745 paid payTo addresses had more probe payers than other payers.",
     "After removing probes, fleets and single-seller bots, 779 independent operators paid $6,284 in 30 days. Their median operator pays one seller.",
     "46 of 50 sampled settlements of representative payers were sent by Coinbase CDP facilitator relayers, 2 by Ultravioleta, 1 by OpenFacilitator, 0 by PayAI.",
-    "On PayAI, only laevitas (derivatives data, own customer base) and wurk (crowd work platform, own users and bounties) showed payers funded from outside the seller.",
-    "Seller tools (402 lint, listing checks, trust scores) have almost no real payers: x402-doctor 3, x402-trust 5, x402check 1.",
+    "Of the PayAI sellers studied, laevitas and wurk were the only ones whose main payers were funded from outside the seller (by the funding rule below).",
+    "Tools for x402 sellers (402 lint, listing checks, trust scores) had few non-probe payers: 1 to 5 each.",
   ],
   categories: {
     note: "Independent operators only, by the seller's directory description (first match). A payTo selling several things is counted once.",
@@ -81,26 +82,29 @@ export const REPORT = {
     ],
   },
   sellers: {
-    note: "PayAI sellers with their own users, 30 days, probe wallets excluded. Funding traced from USDC inflows to each seller's main payers.",
-    columns: ["seller", "payers", "usd", "repeat_payers", "active_last_7d", "main_price", "where_the_money_comes_from"],
+    note:
+      "Six PayAI sellers, 30 days, probe-list wallets excluded. payers_all / usd_all count every USDC transfer from those wallets, " +
+      "including transfers above $2 (research r21 method); payers_le2 / usd_le2 count only transfers of $2 or less, the method of the " +
+      "headline table and of /x402/payer-audit (n/a: not rebuilt that way). The last column states which funding rule matched, not a finding about the seller.",
+    columns: ["seller", "payers_all", "usd_all", "payers_le2", "usd_le2", "repeat_payers", "active_last_7d", "main_price", "funding_rule_result"],
     rows: [
-      ["laevitas", 27, 174, 12, 10, "$0.10 credit pack", "external: top buyer funded $7,199.92 by a batch-transfer contract, 290 payments in 31 days; paid every day of the window"],
-      ["wurkapi", 48, 302, 19, 16, "$1", "external: buyers funded by an exchange hot wallet (nonce 17.25M) and a $798 contract deposit; sBTC bounties"],
-      ["pacta", 18, 21, 7, 18, "$0.02 / $0.05", "self: the payTo sent $98.93 to its top buyer, which funded the next 3 buyers"],
-      ["mars-base", 11, 0.29, 8, 8, "$0.005", "fleet: 4 main wallets each received $0.04 from one EOA and pay on the same rhythm"],
-      ["nftdata", 5, 0.16, 4, 2, "$0.002", "external: buyer funded through a 1inch swap; directory listing only"],
-      ["agentum", 1, 15.7, "n/a", "n/a", "custom", "one wallet pays both domains, median gap 3 s: the seller's own integration"],
+      ["laevitas", 27, 174.3, 26, 86.3, 12, 10, "$0.10 credit pack", "external by rule: top payer funded $7,199.92 by a batch-transfer contract; 290 payments in 31 days"],
+      ["wurkapi", 48, 302, "n/a", "n/a", 19, 16, "$1", "external by rule: main payers funded by an exchange-size hot wallet (nonce 17.25M) and a $798 contract deposit"],
+      ["pacta", 18, 21.11, 18, 2.11, 7, 18, "$0.02 / $0.05", "labelled self by rule: the payTo sent $98.93 to its top payer, which sent USDC to 9 other payers"],
+      ["mars-base", 11, 0.3, 11, 0.3, 8, 8, "$0.005", "labelled fleet by rule: 8 payers funded by one EOA, which sent the same $0.025 to 6 of them"],
+      ["nftdata", 5, 0.16, "n/a", "n/a", 4, 2, "$0.002", "external by rule: main payer funded through a 1inch swap"],
+      ["agentum", 1, 15.7, "n/a", "n/a", "n/a", "n/a", "custom", "one wallet pays both domains, median gap 3 s: a pattern consistent with the seller's own integration"],
     ],
   },
   seller_tools: {
-    note: "Sellers of tools for other x402 sellers. Real payers = non-probe payers.",
+    note: "Sellers of tools for other x402 sellers: payers not on the probe list, 30 days, counted by rule.",
     rows: [
-      ["x402-doctor", "3 real payers, $0.79"],
+      ["x402-doctor", "3 non-probe payers, $0.79"],
       ["x402check.xyz", "1, $0.02"],
       ["x402-trust.com", "5, $0.10"],
       ["agentx.sale protocol-lint", "1, $3.58"],
-      ["agentmercantile bazaar-visibility-change", "probe wallets only"],
-      ["asterpay agent-readiness", "27 non-probe payers, but 24 paid the same $0.7695 on one day: one fleet"],
+      ["agentmercantile bazaar-visibility-change", "probe-list wallets only"],
+      ["asterpay agent-readiness", "27 non-probe payers; 24 of them paid the same $0.7695 on one day, which the grouping rule counts as one operator"],
     ],
   },
   facilitators: {
@@ -116,6 +120,9 @@ export const REPORT = {
       once: "everything else",
       fleet: "wallets whose top 3 sellers are the same are grouped as one operator; 17 groups of 10+ wallets hold 1,208 wallets (e.g. 399 wallets paying ax1/clashofcoins, 345 minting on botpay)",
     },
+    disclaimer: LABEL_DISCLAIMER,
+    probe_list:
+      "The 164-wallet probe list is the 149 wallets found by the probe rule plus 15 known ones: 5 directory probes, 4 test-buy wallets and 6 agent402 wallets.",
     excluded: "Our own wallets, 5 known probes, 4 test-buy wallets, the Relay hot wallet, and 0x26b610a0 (nonce 960k, about $100M in 7 days: an exchange).",
     limits: [
       "Counts are per payTo address; one seller can have several, so seller counts are lower.",
@@ -154,7 +161,9 @@ case studies of six PayAI sellers with the funding trail behind their payers, se
 and the 164 probe and test-buy wallets as a table.</p>
 <p><a class="buy" href="${esc(baseUrl + REPORT_FULL_PATH)}">Read the full report (${esc(prices.html)} USDC on Base)</a>
 <a class="buy" href="${esc(baseUrl + REPORT_JSON_PATH)}">JSON for agents (${esc(prices.json)}, x402)</a></p>
+<p><small>${esc(LABEL_DISCLAIMER)}</small></p>
 <p><small>Payment is an x402 USDC authorization on Base signed in your browser wallet (MetaMask or another EOA wallet; a Coinbase Smart Wallet works once it has been deployed by an earlier transaction, a brand-new one is refused by the facilitator). No account, no sign-up.
+The payment page is the official x402 paywall: it loads the Coinbase Wallet / Base Account SDK (choosing Coinbase Wallet opens keys.coinbase.com) and reads your USDC balance from a public Base RPC; we switch the SDK's usage telemetry off.
 Per-seller data: <code>GET ${esc(baseUrl)}/x402/payer-audit/preview?payTo=0x...</code> (free).</small></p>`,
   );
 }
@@ -164,6 +173,7 @@ export function reportFullHtml() {
   return page(
     REPORT_TITLE,
     `<h1>${esc(r.title)}</h1><p><small>Version ${esc(r.version)}. ${esc(r.scope)}</small></p>
+<p><small>${esc(r.method.disclaimer)}</small></p>
 <h2>Headline numbers</h2>${headline()}
 <h2>Key findings</h2><ul>${r.key_findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
 <h2>What independent operators buy</h2><p>${esc(r.categories.note)}</p>${table(r.categories.columns, r.categories.rows)}
@@ -171,8 +181,17 @@ export function reportFullHtml() {
 <h2>Sellers with their own users</h2><p>${esc(r.sellers.note)}</p>${table(r.sellers.columns, r.sellers.rows)}
 <h2>Tools for sellers</h2><p>${esc(r.seller_tools.note)}</p>${table(["seller", "payers"], r.seller_tools.rows)}
 <h2>Who settles</h2><p>${esc(r.facilitators.note)}</p>${table(["facilitator", "sampled payers"], r.facilitators.rows)}
-<h2>Method</h2>${table(["label", "rule"], Object.entries(r.method.labels))}<p>${esc(r.method.excluded)}</p><ul>${r.method.limits.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
+<h2>Method</h2><p><strong>${esc(r.method.disclaimer)}</strong></p>${table(["label", "rule"], Object.entries(r.method.labels))}<p>${esc(r.method.probe_list)}</p><p>${esc(r.method.excluded)}</p><ul>${r.method.limits.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
 <h2>Probe and test-buy wallets (${r.probe_wallets.length})</h2>${table(["address", "group", "label"], r.probe_wallets.map((w) => [w.address, w.group, w.label]))}`,
+  );
+}
+
+/** Served instead of the 2.5 MB paywall page when the client cannot take gzip or today's page limit is used up. */
+export function reportBusyHtml(baseUrl: string, reason: string) {
+  return page(
+    REPORT_TITLE,
+    `<h1>Payment page unavailable</h1><p>${esc(reason)}</p>
+<p><a href="${esc(baseUrl + REPORT_PATH)}">Free summary</a> · <a href="${esc(baseUrl + REPORT_JSON_PATH)}">JSON version for agents (x402)</a></p>`,
   );
 }
 

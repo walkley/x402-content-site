@@ -78,9 +78,10 @@ export const SEC_ROUTE_KEY = "ANY /sec/{proxy+}";
 export const SEC_THROTTLE = { rateLimit: 1, burstLimit: 1 };
 /**
  * Payer audit (/x402/*) and report (/reports/*) routes: everything under each prefix, any method, on its own greedy
- * route so a misspelt path or method also stays off $default's 10 rps. The report's browser paywall page is about 0.6
- * MB gzipped, so its throttle bounds egress: 1 rps x 0.6 MB is at most about 52 GB a day, and the cost breaker's
- * daily invocation cap applies on top.
+ * route so a misspelt path or method also stays off $default's 10 rps. Egress of the report's browser paywall page
+ * (2,512,187 B plain, 676,855 B gzip, measured) is bounded in the app, not here: only gzip clients get it, at most
+ * PAYWALL_DAILY (2,000) a UTC day (DynamoDB counter in the quota table, fail closed), about 1.4 GB/day. Everything
+ * else on this route is under 50 KB a response: 1 rps x 86,400 x 50 KB is at most about 4.3 GB/day.
  */
 export const AUDIT_ROUTE_KEY = "ANY /x402/{proxy+}";
 export const AUDIT_THROTTLE = { rateLimit: 2, burstLimit: 5 };

@@ -66,13 +66,14 @@ import {
   REPORT_JSON_PATH,
   REPORT_PATH,
   REPORT_TITLE,
+  reportBusyHtml,
   reportFullHtml,
   reportSummaryHtml,
 } from "./report.js";
 import { MAX_FILINGS_LIMIT, SecClient, parseCompanyQuery, parseFilingsQuery, secUserAgent } from "./sec.js";
 import { FunnelLogger, type FunnelEvent } from "./funnel.js";
 import { MCP_SRC, PAID_MCP_PATH, ipHashOf, mcpHandler, mcpManifest, mcpRequestLog } from "./mcp.js";
-import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, quotaFromEnv, type FreeQuota } from "./quota.js";
+import { FREE_GLOBAL_DAILY, FREE_PER_IP_DAILY, paywallCapFromEnv, quotaFromEnv, type DailyCap, type FreeQuota } from "./quota.js";
 import {
   CDP_FACILITATOR_URL,
   FACILITATOR_URLS,
@@ -172,6 +173,8 @@ export interface AppConfig {
   mcpAllowedOrigins?: string[];
   /** Payer audit data (S3 in Lambda). Unset: every payTo is a free 404 not_indexed. */
   auditStore?: AuditStore;
+  /** Daily cap on browser paywall pages for the HTML report. Unset: no cap (local runs). */
+  paywallCap?: DailyCap;
 }
 
 /**
@@ -220,6 +223,7 @@ export function configFromEnv(env: Env, fetchSecret?: SecretFetcher): AppConfig 
     // Comma-separated browser origins allowed to call /mcp; empty (the default) refuses every request with Origin.
     mcpAllowedOrigins: (env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean),
     auditStore: auditStoreFromEnv(env),
+    paywallCap: paywallCapFromEnv(env),
   };
   if (kind === "cdp") {
     return { ...base, facilitatorUrl: CDP_FACILITATOR_URL, facilitatorConfig: cdpFacilitatorConfig(cdpCredentialLoader(env, fetchSecret)) };
@@ -669,8 +673,10 @@ export function createApp(cfg: AppConfig) {
   // timer then fires on wake and the next paid request got a 502. We sync ourselves instead: during Lambda init
   // (lambda.ts awaits initFacilitator), and again before a paid request if that did not succeed.
   // Browsers on the HTML report get the official x402 paywall (wallet connect, USDC balance, EIP-3009 signature in the
-  // browser); testnet follows the network, so Base mainnet shows mainnet. No CDP key: the paywall config has none and the
-  // page only talks to the wallet, the chain's public RPC and this route. Every other paid route keeps BASIC_402_HTML.
+  // browser); testnet follows the network, so Base mainnet shows mainnet. No CDP key: the paywall config has none. The
+  // page loads the Coinbase Wallet / Base Account SDK (keys.coinbase.com popup when that wallet is picked); its default
+  // usage telemetry to cca-lite.coinbase.com is switched off by paywallWithoutTelemetry. Every other paid route keeps
+  // BASIC_402_HTML.
   // Only @x402/paywall/evm is imported (2.5 MB); the package root bundles the Solana and Algorand pages too (7.8 MB).
   const paywallConfig = { appName: REPORT_TITLE, testnet: cfg.network !== MAINNET_NETWORK };
   const httpServer = new x402HTTPResourceServer(server, routes).registerPaywallProvider({
@@ -678,7 +684,7 @@ export function createApp(cfg: AppConfig) {
       const path = required.resource?.url ? new URL(required.resource.url).pathname : "";
       const [requirement] = required.accepts;
       return path === REPORT_FULL_PATH && requirement && evmPaywall.supports(requirement)
-        ? evmPaywall.generateHtml(requirement, required, paywallConfig)
+        ? paywallWithoutTelemetry(evmPaywall.generateHtml(requirement, required, paywallConfig))
         : BASIC_402_HTML;
     },
   });
@@ -900,8 +906,28 @@ export function createApp(cfg: AppConfig) {
   });
   const reportPrices = { html: REPORT_HTML_PRICE, json: REPORT_JSON_PRICE };
   app.get(REPORT_PATH, (c) => c.html(reportSummaryHtml(baseUrl(c), reportPrices)));
-  // The browser paywall page is about 2.5 MB of script; gzip brings it to about a quarter (Lambda base64-encodes it).
+  // The browser paywall page is 2.5 MB of script, 0.68 MB gzipped (Lambda base64-encodes it). Egress bound: an unpaid
+  // browser request gets it only if it accepts gzip and today's PAYWALL_DAILY renders are not used up; otherwise a
+  // 1 KB page pointing to the summary and the JSON version. Worst case 2,000 x 0.68 MB = 1.4 GB a day.
   app.use(REPORT_FULL_PATH, compress());
+  app.use(REPORT_FULL_PATH, async (c, next) => {
+    const paying = c.req.header("payment-signature") || c.req.header("x-payment");
+    const browser = (c.req.header("accept") ?? "").includes("text/html") && (c.req.header("user-agent") ?? "").includes("Mozilla");
+    if (paying || !browser) return next();
+    if (!/\bgzip\b/i.test(c.req.header("accept-encoding") ?? "")) {
+      return c.html(reportBusyHtml(baseUrl(c), "Your client does not accept gzip, which the payment page needs."), 406);
+    }
+    let allowed = true;
+    try {
+      allowed = cfg.paywallCap ? await cfg.paywallCap.take() : true;
+    } catch {
+      allowed = false; // counter unavailable: fail closed, the small page costs nothing
+    }
+    if (!allowed) {
+      return c.html(reportBusyHtml(baseUrl(c), "Today's payment page limit is reached. Try again after 00:00 UTC."), 429, { "Retry-After": "3600" });
+    }
+    return next();
+  });
 
   const payment = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
   for (const prefix of ["/cn/*", "/deps/*", "/sec/*", "/x402/*", "/reports/*"]) {
@@ -978,6 +1004,19 @@ export function createApp(cfg: AppConfig) {
     await cfg.quota?.init?.();
   };
   return Object.assign(app, { initFacilitator, initQuota });
+}
+
+/**
+ * The paywall's Coinbase Wallet connector is built without a preference, so the Base Account SDK sends usage
+ * telemetry (Amplitude, deviceId) to cca-lite.coinbase.com as soon as the page loads. The SDK skips it when
+ * preference.telemetry is false; the paywall has no option for that, so the connector call in the prebuilt page is
+ * rewritten. Throws if @x402/paywall changed the call, so an upgrade cannot silently turn telemetry back on
+ * (test/payer-audit.test.ts renders the page).
+ */
+export const PAYWALL_CONNECTOR = 'TE({appName:window.x402.appName||"x402 Paywall"})';
+export function paywallWithoutTelemetry(html: string): string {
+  if (!html.includes(PAYWALL_CONNECTOR)) throw new Error("@x402/paywall connector call not found; cannot turn off its telemetry");
+  return html.replace(PAYWALL_CONNECTOR, () => 'TE({appName:window.x402.appName||"x402 Paywall",preference:{options:"all",telemetry:!1}})');
 }
 
 /** Rejects after ms; the abandoned promise keeps running and its result is ignored. */

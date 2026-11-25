@@ -3,10 +3,10 @@ import { NoSuchKey } from "@aws-sdk/client-s3";
 import type { FacilitatorClient } from "@x402/core/server";
 import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from "@x402/core/http";
-import { configFromEnv, createApp } from "../src/app.js";
+import { PAYWALL_CONNECTOR, configFromEnv, createApp, paywallWithoutTelemetry } from "../src/app.js";
 import { FunnelLogger } from "../src/funnel.js";
 import { UpstreamError } from "../src/advisories.js";
-import { DirAuditStore, S3AuditStore, auditSuggestions, type AuditRecord, type AuditStore } from "../src/payer-audit.js";
+import { DirAuditStore, LABEL_DISCLAIMER, S3AuditStore, auditSuggestions, type AuditRecord, type AuditStore } from "../src/payer-audit.js";
 import { REPORT } from "../src/report.js";
 
 const FIXTURES = new URL("./fixtures/payer-audit/", import.meta.url).pathname;
@@ -99,7 +99,8 @@ describe("GET /x402/payer-audit ($0.05)", () => {
     const required = decodePaymentRequiredHeader(res.headers.get("payment-required")!);
     expect(required.accepts[0]).toMatchObject({ scheme: "exact", network: NETWORK, payTo: PAY_TO, amount: "50000" });
     const bazaar = required.extensions?.bazaar as { info: { input: { queryParams: unknown } } };
-    expect(JSON.stringify(bazaar.info)).toContain(PACTA);
+    expect(JSON.stringify(bazaar.info)).toContain(PAY_TO.toLowerCase());
+    expect(JSON.stringify(required)).not.toContain(PACTA);
     expect(await res.json()).toMatchObject({ error: "Payment required", price: "$0.05" });
   });
 
@@ -113,7 +114,7 @@ describe("GET /x402/payer-audit ($0.05)", () => {
     expect(unpaid.status).toBe(status);
     const body = await unpaid.json();
     expect(body.error).toBe(code);
-    expect(body.example.url).toContain(`payTo=${PACTA}`);
+    expect(body.example.url).toContain(`payTo=${PAY_TO.toLowerCase()}`);
     const withPayment = await paid(app, `/x402/payer-audit${q}`, "/x402/payer-audit");
     expect(withPayment.status).toBe(status);
     expect(facilitator.verifyCalls + facilitator.settleCalls).toBe(0);
@@ -136,7 +137,8 @@ describe("GET /x402/payer-audit ($0.05)", () => {
     expect(body.payers).toHaveLength(18);
     expect(body.payers[0]).toMatchObject({ address: "0xca4e2ff22b69a7284210c47bdee21aac1269da09", label: "self", reason: expect.stringContaining("by the payTo") });
     expect(body.by_label_detail.self).toMatchObject({ payers: 10 });
-    expect(body.suggestions.join(" ")).toContain("funded by this payTo");
+    expect(body.suggestions.join(" ")).toContain("labelled self");
+    expect(body.disclaimer).toBe(LABEL_DISCLAIMER);
     expect(body.listing).toMatchObject({ cdp: false, payai: true });
     expect(facilitator.settleCalls).toBe(1);
   });
@@ -153,10 +155,10 @@ describe("payer audit data", () => {
   it("suggestions name probes, fleets and missing listings", () => {
     const s = auditSuggestions(record({ probe: { payers: 9, tx: 9, usd: 0.09 }, fleet: { payers: 3, tx: 30, usd: 0.3 } }, { cdp: false, payai: true })).join("\n");
     expect(s).toContain("9 of 12 payers are directory probes");
-    expect(s).toContain("3 payers ($0.30) share one funder");
+    expect(s).toContain("3 payers ($0.30) are labelled fleet");
     expect(s).toContain("Not in the CDP Bazaar snapshot");
     expect(s).toContain("No payer paid on 2 or more days");
-    expect(s).toContain("All revenue in the window came from probes");
+    expect(s).toContain("All revenue in the window came from payers labelled probe");
     expect(auditSuggestions(record({}))[0]).toContain("No Base USDC payments");
   });
 
@@ -228,14 +230,52 @@ describe("x402 real payers report", () => {
     const browser = await app.request("/reports/x402-real-payers/full", { headers: { ...BROWSER, "accept-encoding": "gzip" } });
     expect(browser.status).toBe(402);
     expect(browser.headers.get("content-encoding")).toBe("gzip");
-    const unzipped = await new Response(browser.body!.pipeThrough(new DecompressionStream("gzip"))).text();
-    expect(unzipped).toContain("window.x402");
-    const plain = await app.request("/reports/x402-real-payers/full", { headers: BROWSER });
-    const page = await plain.text();
+    const page = await new Response(browser.body!.pipeThrough(new DecompressionStream("gzip"))).text();
     expect(page).toContain("window.x402");
+    // telemetry of the Base Account SDK is switched off in the connector call
+    expect(page).toContain(`${PAYWALL_CONNECTOR.slice(0, -2)},preference:{options:"all",telemetry:!1}})`);
+    expect(page).not.toContain(PAYWALL_CONNECTOR);
     expect(page).toContain("testnet: false");
     expect(page).toContain('"amount":"2000000"');
     expect(page).not.toMatch(/cdpClientKey|CDP_CLIENT_KEY/i);
+  });
+
+  it("a browser without gzip gets a 1 KB page instead of the 2.5 MB paywall", async () => {
+    const { app } = setup();
+    const res = await app.request("/reports/x402-real-payers/full", { headers: BROWSER });
+    expect(res.status).toBe(406);
+    const html = await res.text();
+    expect(html.length).toBeLessThan(3000);
+    expect(html).toContain("/reports/x402-real-payers.json");
+  });
+
+  it("paywall pages stop at the daily cap (fail closed when the counter fails); agents still get the JSON quote", async () => {
+    let left = 1;
+    const cap = { limit: 1, take: async () => left-- > 0 };
+    const facilitator = new Facilitator();
+    const app = createApp({ network: NETWORK, payTo: PAY_TO, facilitatorKind: "payai", facilitatorUrl: "http://unused", facilitator, funnel: new FunnelLogger(() => {}), paywallCap: cap });
+    const gz = { ...BROWSER, "accept-encoding": "gzip" };
+    expect((await app.request("/reports/x402-real-payers/full", { headers: gz })).status).toBe(402);
+    const over = await app.request("/reports/x402-real-payers/full", { headers: gz });
+    expect(over.status).toBe(429);
+    expect((await over.text()).length).toBeLessThan(3000);
+    expect((await app.request("/reports/x402-real-payers/full", { headers: UA })).status).toBe(402);
+    const broken = createApp({ network: NETWORK, payTo: PAY_TO, facilitatorKind: "payai", facilitatorUrl: "http://unused", facilitator, funnel: new FunnelLogger(() => {}), paywallCap: { limit: 1, take: async () => { throw new Error("ddb down"); } } });
+    expect((await broken.request("/reports/x402-real-payers/full", { headers: gz })).status).toBe(429);
+    // a paid request is never capped
+    expect((await paid(app, "/reports/x402-real-payers/full")).status).toBe(200);
+  });
+
+  it("paywallWithoutTelemetry refuses a page whose connector call changed", () => {
+    expect(() => paywallWithoutTelemetry("<html>no connector</html>")).toThrow(/telemetry/);
+  });
+
+  it("report and audit carry the rule-based disclaimer", async () => {
+    const { app } = setup();
+    expect(await (await app.request("/reports/x402-real-payers", { headers: BROWSER })).text()).toContain("not an allegation");
+    expect(REPORT.method.disclaimer).toBe(LABEL_DISCLAIMER);
+    const preview = await (await app.request(`/x402/payer-audit/preview?payTo=${PACTA}`, { headers: UA })).json();
+    expect(preview.disclaimer).toBe(LABEL_DISCLAIMER);
   });
 
   it("HTML version paid: the report with the probe wallet table", async () => {
@@ -255,7 +295,8 @@ describe("x402 real payers report", () => {
         return { kinds: [{ x402Version: 2, scheme: "exact", network: "eip155:84532" }], extensions: [], signers: {} } as never;
       }
     })(), funnel: new FunnelLogger(() => {}) });
-    const page = await (await app.request("/reports/x402-real-payers/full", { headers: BROWSER })).text();
+    const res = await app.request("/reports/x402-real-payers/full", { headers: { ...BROWSER, "accept-encoding": "gzip, deflate, br" } });
+    const page = await new Response(res.body!.pipeThrough(new DecompressionStream("gzip"))).text();
     expect(page).toContain("testnet: true");
   });
 });

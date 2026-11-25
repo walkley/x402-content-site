@@ -7,6 +7,11 @@ import { InputError } from "./calendar.js";
 import { UpstreamError } from "./advisories.js";
 
 export const AUDIT_SCHEMA_VERSION = 1;
+
+export const LABEL_DISCLAIMER =
+  "Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, " +
+  "and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or " +
+  "promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues";
 export const PAYER_LABELS = ["probe", "self", "fleet", "real", "once"] as const;
 export type PayerLabel = (typeof PAYER_LABELS)[number];
 
@@ -148,6 +153,7 @@ export function auditPreview(r: AuditRecord) {
     by_label: Object.fromEntries(PAYER_LABELS.map((l) => [l, r.by_label[l].payers])),
     probe_share: { payers: share(p.payers, r.totals.payers), usd: share(p.usd, r.totals.usd) },
     full_report: "GET /x402/payer-audit?payTo=... (x402) lists every payer with label, tx, USD, funders, facilitator and suggestions",
+    disclaimer: LABEL_DISCLAIMER,
   };
 }
 
@@ -168,10 +174,13 @@ export function auditSuggestions(r: AuditRecord): string[] {
     );
   }
   if (l.self.payers > 0) {
-    out.push(`${l.self.payers} payers (${money(l.self.usd)}) were funded by this payTo or by a wallet it funded. Exclude them from revenue and listing metrics.`);
+    out.push(
+      `${l.self.payers} payers (${money(l.self.usd)}) are labelled self: they received USDC from this payTo or from a wallet it funded. ` +
+        "If those transfers were not refunds or credits to customers, leave these payers out of revenue and listing metrics.",
+    );
   }
   if (l.fleet.payers > 0) {
-    out.push(`${l.fleet.payers} payers (${money(l.fleet.usd)}) share one funder that sent each the same amount: one operator, not ${l.fleet.payers} customers.`);
+    out.push(`${l.fleet.payers} payers (${money(l.fleet.usd)}) are labelled fleet: one funder sent the same amount to several of them, so they may be one operator rather than ${l.fleet.payers} customers.`);
   }
   if (l.real.payers === 0) {
     out.push("No payer paid on 2 or more days with 3 or more payments. Repeat use is the signal to watch; directory listing alone has not produced it.");
@@ -184,7 +193,7 @@ export function auditSuggestions(r: AuditRecord): string[] {
     );
   }
   if (!r.listing.payai) out.push("Not in the PayAI directory snapshot. PayAI lists a route after it settles one payment for it (a self-payment works).");
-  if (externalUsd === 0 && t.usd > 0) out.push("All revenue in the window came from probes, self-funded or fleet wallets.");
+  if (externalUsd === 0 && t.usd > 0) out.push("All revenue in the window came from payers labelled probe, self or fleet.");
   return out;
 }
 
@@ -197,14 +206,15 @@ export const PAYER_AUDIT_DESCRIPTION =
   "probe (directory probe or test-buy wallet, 164-wallet list), self (funded by the payTo or a wallet it funded), " +
   "fleet (one funder sent the same amount to 3+ payers), real (3+ payments on 2+ days) or once; " +
   "with tx count, USD, funders, settling facilitator, CDP/PayAI listing status and suggestions. " +
-  "A payTo not in the data set is a free 404. Data rebuilt offline from Base RPC.";
+  "A payTo not in the data set is a free 404. Data rebuilt offline from Base RPC. Labels are rule-based classifications of " +
+  "public transfers, not allegations; they can be wrong (refunds, promotional credits).";
 export const PAYER_AUDIT_PREVIEW_DESCRIPTION =
   "Free: payer counts per label (probe, self, fleet, real, once) and the probe share for a Base payTo, no addresses.";
 
 const ADDR = { type: "string", pattern: "^0x[0-9a-fA-F]{40}$" };
 export const PAYER_AUDIT_INPUT_SCHEMA = {
   type: "object",
-  properties: { payTo: { ...ADDR, description: "The payTo address in your x402 accepts (Base)", examples: ["0x4348df1befaffcba248b5118b1b782b1b2bded14"] } },
+  properties: { payTo: { ...ADDR, description: "The payTo address in your x402 accepts (Base)", examples: ["0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2"] } },
   required: ["payTo"],
   additionalProperties: false,
 };
@@ -242,4 +252,4 @@ export const PAYER_AUDIT_OUTPUT_SCHEMA = {
   },
   required: ["pay_to", "payers", "by_label", "suggestions"],
 };
-export const PAYER_AUDIT_EXAMPLE_INPUT = { payTo: "0x4348df1befaffcba248b5118b1b782b1b2bded14" };
+export const PAYER_AUDIT_EXAMPLE_INPUT = { payTo: "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2" };

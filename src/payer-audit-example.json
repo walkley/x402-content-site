@@ -1,39 +1,40 @@
 {
- "pay_to": "0x4348df1befaffcba248b5118b1b782b1b2bded14",
- "generated_at": "2026-11-25T03:27:56.796Z",
+ "pay_to": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
+ "generated_at": "2026-11-25T04:02:30.063Z",
  "window": {
-  "from_block": 53078908,
-  "to_block": 61743941,
-  "from": "2026-10-25T16:52:43.000Z",
-  "to": "2026-11-24T16:52:43.000Z"
+  "from_block": 53098985,
+  "to_block": 61944702,
+  "from": "2026-10-26T04:01:57.000Z",
+  "to": "2026-11-25T04:01:56.000Z"
  },
- "payer_count": 18,
+ "payer_count": 2,
  "by_label": {
-  "probe": 0,
-  "self": 10,
+  "probe": 1,
+  "self": 1,
   "fleet": 0,
-  "real": 1,
-  "once": 7
+  "real": 0,
+  "once": 0
  },
  "probe_share": {
-  "payers": 0,
-  "usd": 0
+  "payers": 0.5,
+  "usd": 0.316
  },
+ "disclaimer": "Labels are rule-based classifications of public on-chain USDC transfers. They describe funding and payment patterns, not intent, and are not an allegation of wash trading or any wrongdoing by a seller or payer. They can be wrong (for example refunds or promotional credits sent by a seller make its customers look self-funded). Corrections: https://github.com/walkley/x402-content-site/issues",
  "totals": {
-  "payers": 18,
-  "tx": 75,
-  "usd": 2.1109
+  "payers": 2,
+  "tx": 5,
+  "usd": 0.019
  },
  "by_label_detail": {
   "probe": {
-   "payers": 0,
-   "tx": 0,
-   "usd": 0
+   "payers": 1,
+   "tx": 2,
+   "usd": 0.006
   },
   "self": {
-   "payers": 10,
-   "tx": 59,
-   "usd": 1.94
+   "payers": 1,
+   "tx": 3,
+   "usd": 0.013
   },
   "fleet": {
    "payers": 0,
@@ -41,89 +42,65 @@
    "usd": 0
   },
   "real": {
-   "payers": 1,
-   "tx": 9,
-   "usd": 0.0009
+   "payers": 0,
+   "tx": 0,
+   "usd": 0
   },
   "once": {
-   "payers": 7,
-   "tx": 7,
-   "usd": 0.17
+   "payers": 0,
+   "tx": 0,
+   "usd": 0
   }
  },
  "large_transfers": {
-  "tx": 2,
-  "usd": 98.864
+  "tx": 0,
+  "usd": 0
  },
  "listing": {
   "snapshot": "2026-11-24",
   "cdp": false,
-  "payai": true,
-  "hosts": [
-   "api.pacta.wtf",
-   "pacta-x402.pacta.workers.dev",
-   "pacta.fractalneurons.com"
-  ],
-  "resources": 6
+  "payai": false,
+  "hosts": [],
+  "resources": 0
  },
  "facilitators": {
-  "payai": 17,
-  "unknown": 1
+  "payai": 2
  },
  "probe_list": {
   "wallets": 164,
   "source": "x402-content-site data/payer-audit/probe-wallets.json"
  },
  "suggestions": [
-  "10 payers ($1.94) were funded by this payTo or by a wallet it funded. Exclude them from revenue and listing metrics.",
-  "1 repeat payers (3+ payments on 2+ days) paid $0.0009; that is the external revenue to track.",
-  "Not in the CDP Bazaar snapshot. CDP lists a route after the CDP facilitator settles a payment for it; most sampled agent payments on Base are settled by CDP."
+  "1 of 2 payers are directory probes and test-buy wallets ($0.006). Do not count them as users; they pay once per new route to check delivery.",
+  "1 payers ($0.01) are labelled self: they received USDC from this payTo or from a wallet it funded. If those transfers were not refunds or credits to customers, leave these payers out of revenue and listing metrics.",
+  "No payer paid on 2 or more days with 3 or more payments. Repeat use is the signal to watch; directory listing alone has not produced it.",
+  "Not in the CDP Bazaar snapshot. CDP lists a route after the CDP facilitator settles a payment for it; most sampled agent payments on Base are settled by CDP.",
+  "Not in the PayAI directory snapshot. PayAI lists a route after it settles one payment for it (a self-payment works).",
+  "All revenue in the window came from payers labelled probe, self or fleet."
  ],
  "payers": [
   {
-   "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
+   "address": "0xaa9bc6380c65fe6d99d0805837ae460d73a91cb2",
    "label": "self",
-   "reason": "funded $98.934 by the payTo",
-   "tx": 14,
-   "usd": 0.69,
-   "days": 6,
-   "first_day": "2026-11-18",
+   "reason": "payer is the payTo",
+   "tx": 3,
+   "usd": 0.013,
+   "days": 1,
+   "first_day": "2026-11-24",
    "last_day": "2026-11-24",
-   "funders": [
-    {
-     "address": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
-     "usd": 210.1135,
-     "kind": "hot_wallet"
-    },
-    {
-     "address": "0x4348df1befaffcba248b5118b1b782b1b2bded14",
-     "usd": 98.934,
-     "kind": "pay_to"
-    },
-    {
-     "address": "0xd0b53d9277642d899df5c87a3966a349a798f224",
-     "usd": 0.0106,
-     "kind": "contract"
-    }
-   ],
+   "funders": [],
    "facilitator": "payai"
   },
   {
-   "address": "0xd8d6fbba5d0a8b3afaec0eca62656e69fad4a9b7",
-   "label": "self",
-   "reason": "funded $1 by self wallet 0xca4e2ff22b69a7284210c47bdee21aac1269da09",
-   "tx": 4,
-   "usd": 0.37,
+   "address": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+   "label": "probe",
+   "reason": "probe list (spray4)",
+   "tx": 2,
+   "usd": 0.006,
    "days": 1,
-   "first_day": "2026-11-21",
-   "last_day": "2026-11-21",
-   "funders": [
-    {
-     "address": "0xca4e2ff22b69a7284210c47bdee21aac1269da09",
-     "usd": 1,
-     "kind": "eoa"
-    }
-   ],
+   "first_day": "2026-11-24",
+   "last_day": "2026-11-24",
+   "funders": [],
    "facilitator": "payai"
   }
  ]
